@@ -40,6 +40,19 @@ const config = {
     refreshToken: env.ZOHO_REFRESH_TOKEN,
   },
 
+  // AI features (OpenAI). Disabled unless OPENAI_API_KEY is set.
+  ai: {
+    enabled: Boolean(env.OPENAI_API_KEY),
+    apiKey: env.OPENAI_API_KEY,
+    // Pick a current model from https://platform.openai.com/docs/models that
+    // supports Structured Outputs (json_schema).
+    model: env.OPENAI_MODEL || 'gpt-5-mini',
+    baseUrl: env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    timeoutMs: Number(env.OPENAI_TIMEOUT_MS || 45000),
+    maxRequestsPerHour: Number(env.AI_MAX_REQUESTS_PER_HOUR || 30),
+    cacheMinutes: Number(env.AI_CACHE_MINUTES || 60),
+  },
+
   // Zoho orgs customise module and field API names, so every name the portal
   // touches is configurable here instead of hard-coded in the client.
   crm: {

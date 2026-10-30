@@ -2,6 +2,8 @@ const config = require('./config');
 const { createApp } = require('./app');
 const { createCrm } = require('./zoho');
 const { UserStore } = require('./store/userStore');
+const { OpenAiClient } = require('./ai/openaiClient');
+const { AiService } = require('./ai/aiService');
 
 async function seedDemoUsers(userStore) {
   if (userStore.size > 0) return;
@@ -15,8 +17,11 @@ async function main() {
   const userStore = new UserStore(config.userStorePath);
   if (config.zohoMode === 'mock') await seedDemoUsers(userStore);
 
-  createApp({ config, crm, userStore }).listen(config.port, () => {
+  const ai = config.ai.enabled ? new AiService({ client: new OpenAiClient(config.ai), crm, config }) : null;
+
+  createApp({ config, crm, userStore, ai }).listen(config.port, () => {
     console.log(`${config.brandName} running at http://localhost:${config.port} (Zoho mode: ${config.zohoMode})`);
+    console.log(ai ? `AI features enabled (OpenAI model: ${config.ai.model})` : 'AI features disabled (set OPENAI_API_KEY to enable)');
   });
 }
 

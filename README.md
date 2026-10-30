@@ -6,6 +6,8 @@ A white-label client portal for real estate brokerages that already manage their
 - **Search properties.** Fill in a form with budget range, a preferred location plus other locations, buy or rent, property type, minimum bedrooms, bathrooms and floor area, and free-text requirements. The portal returns the **available** listings from the CRM that match.
 - **Contact their agent.** Message the agent from inside the portal (in general, about a specific deal, or "I'm interested" on a listing). Each message lands in Zoho as a Note on the client's Contact and a high-priority Task for the agent. The agent's replies show up in the portal thread.
 
+- **AI assistant (OpenAI, optional).** See [AI features](#ai-features-openai) below.
+
 Zoho CRM stays the single source of truth. The portal stores nothing about deals or properties. It only keeps login accounts, and each one points at a Zoho Contact.
 
 ## Quick start (demo data, no Zoho needed)
@@ -74,6 +76,26 @@ The script looks up the Contact by email in Zoho and links the login to it. If t
 - **To reply in the portal**, the agent adds a Note on the Contact titled `[Portal Reply] <subject>`. Only notes with these two prefixes are ever shown to clients. Internal notes stay private.
 - Updating a Deal's Stage, Amount, Closing Date or Description is reflected in the portal immediately.
 
+## AI features (OpenAI)
+
+Set `OPENAI_API_KEY` (and `OPENAI_MODEL`) in `.env` to switch these on. Without a key the portal works exactly as before and the AI panels are hidden.
+
+| Feature | Where | What it does |
+|---|---|---|
+| **AI property search** | Find a Property | The client describes what they want in plain English ("3-bed in Austin or Dallas under 650k, ideally with a pool"). The model turns it into search filters, which are filled into the form so the client can see and adjust them. The CRM search runs on those filters, then the model ranks the matches against the client's softer wishes and gives each a match score and a short reason. If nothing matches, it loosens the search (about 15% over budget, one fewer bedroom, then any location) and explains what each near match is missing. |
+| **Deals at a glance** | My Deals | An overview across the client's deals, plus which open deals need their attention first and why. |
+| **What this means for you** | Each deal | A plain-language explanation of the current stage, the usual next steps, things to watch (for example, a closing date coming up or no update in weeks), and questions the client could ask their agent. |
+
+How it is kept safe and affordable:
+
+- **Your data stays the source of truth.** The model only interprets and explains. Prices, addresses and stages shown on screen always come from the CRM. A ranked listing ID the model invents is discarded. A listing the model leaves out is still shown, just without a reason.
+- **Structured output only.** Every call uses OpenAI Structured Outputs with a strict JSON schema. Listing and deal IDs are restricted to the client's own records.
+- **Minimal data sent.** The model receives deal and listing facts only, never the client's email, phone or the agent's contact details. CRM text is passed as data, and the prompts tell the model not to follow instructions inside it.
+- **Client-facing guardrails.** The model is told not to invent facts or give legal or financial advice, and every AI panel carries a "confirm with your agent" note.
+- **Cost control.** Each client is limited to `AI_MAX_REQUESTS_PER_HOUR` (default 30). Deal insights are cached until the deal changes or the day rolls over. A slow or failed AI call never blocks the page; the panel shows a short error and the regular features keep working.
+
+All prompts and schemas live in `src/ai/prompts.js`, so they can be tuned in one place.
+
 ## Architecture
 
 ```
@@ -90,6 +112,11 @@ src/
     liveCrm.js       Portal operations against Zoho (related lists, COQL, Notes, Tasks)
     mappers.js       Zoho record -> portal shape; COQL query builder
     mockCrm.js       Same interface, in-memory sample data
+  ai/
+    openaiClient.js  OpenAI Chat Completions client (Structured Outputs)
+    prompts.js       System prompts + JSON schemas for every AI feature
+    aiService.js     AI search, deal insights, caching and per-client limits
+  routes/ai.js       /api/ai/* endpoints (hidden when no OpenAI key is set)
   store/userStore.js Portal logins (email -> password hash -> Zoho Contact id)
 scripts/create-user.js
 test/
