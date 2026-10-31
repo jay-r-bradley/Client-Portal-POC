@@ -215,7 +215,7 @@ def data_model(_: argparse.Namespace) -> None:
               "Dotted lines in the diagram are links matched on Zoho ids but not enforced.", "",
               "## Diagram", "", "```mermaid", "erDiagram"]
     for table in tables.values():
-        for fkc in table.foreign_keys:
+        for fkc in sorted(table.foreign_keys, key=lambda f: f.parent.name):
             parent = fkc.column.table.name
             child_col = fkc.parent
             card = "o|--o{" if child_col.nullable else "||--o{"

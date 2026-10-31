@@ -90,9 +90,15 @@ class MockCrm:
     async def send_message(self, contact_id: str, *, subject: str, body: str, deal: dict | None, property: dict | None) -> dict:
         context = [c for c in (deal and f"Deal: {deal['name']}", property and f"Property: {property['name']}") if c]
         message = {"id": self._id("msg"), "contactId": contact_id, "from": "client", "author": None, "subject": subject,
-                   "body": f"{body}\n\n— {' · '.join(context)}" if context else body, "createdAt": _now()}
+                   "body": f"{body}\n\n— {' · '.join(context)}" if context else body, "createdAt": _now(),
+                   "dealId": deal["id"] if deal else None, "propertyId": property["id"] if property else None}
         self.data["messages"].append(message)
-        return {k: v for k, v in message.items() if k != "contactId"}
+        contact = self.data["contacts"].get(contact_id) or {}
+        self.data.setdefault("tasks", []).append({
+            "zoho_id": self._id("task"), "message_zoho_id": message["id"], "subject": f"Client Portal message from {contact.get('name', 'client')}"[:255],
+            "status": "Not Started", "priority": "High", "due_date": None, "owner_zoho_id": contact.get("ownerId"),
+            "contact_zoho_id": contact_id, "deal_zoho_id": message["dealId"]})
+        return {k: v for k, v in message.items() if k not in ("contactId", "dealId", "propertyId")}
 
     async def create_signup_lead(self, g: dict) -> dict:
         lead = {**g, "id": self._id("lead"), "source": self.crm.signup.lead_source, "createdAt": _now()}

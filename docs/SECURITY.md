@@ -53,6 +53,7 @@ All of this is enforced on the server for every request. Clients and guests can 
   - Content-Security-Policy, which allows only the portal's own scripts and styles (no inline scripts).
   - Clickjacking protection (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), `nosniff`, Referrer-Policy, Permissions-Policy, COOP.
   - HSTS in production, and `no-store` on API responses.
+- **Zoho webhook:** `/api/sync/zoho-webhook` accepts server-to-server calls without the browser checks above, so it needs a shared secret (`ZOHO_WEBHOOK_SECRET`, compared in constant time) and is off without one. It only names a record; the portal reads that record from Zoho itself, so a forged call cannot inject data. The 64 KB limit still applies.
 - **No public API documentation:** `/docs` and `/openapi.json` are disabled.
 - **Errors:** internal and provider errors are logged on the server and shown to users as a generic message.
 
@@ -74,6 +75,7 @@ All of this is enforced on the server for every request. Clients and guests can 
 | Data | Where | Retention |
 |---|---|---|
 | Deals, contacts, leads, listings, messages | Zoho CRM | Your Zoho retention policy |
+| Copy of those records (for speed) | Portal database | Follows Zoho: updates and deletions sync back, and a daily full sync removes anything deleted in Zoho |
 | Portal accounts and consents | Portal database | Until erased |
 | One-time codes and pending sign-ups | Portal database | Deleted after 1 day |
 | Activity log | Portal database | `ACTIVITY_RETENTION_DAYS` (default 730), then deleted automatically |

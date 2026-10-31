@@ -132,6 +132,16 @@ class ZohoMcpSettings:
 
 
 @dataclass
+class SyncSettings:
+    # Pages read from the synced copy in the database (fast); "live" reads Zoho on every request.
+    read_from: str = "copy"
+    # Catch-up sync interval; Zoho webhooks bring changes in between.
+    interval_minutes: int = 10
+    # Shared secret Zoho sends with webhooks (header X-Portal-Webhook-Token). Unset = webhooks off.
+    webhook_secret: str | None = None
+
+
+@dataclass
 class AiSettings:
     api_key: str | None = None
     # OpenAI's low-cost "mini" tier by default; any model with tool calling and
@@ -197,6 +207,7 @@ class Settings:
     zoho_mode: str = "mock"
     zoho: ZohoSettings = field(default_factory=ZohoSettings)
     zoho_mcp: ZohoMcpSettings = field(default_factory=ZohoMcpSettings)
+    sync: SyncSettings = field(default_factory=SyncSettings)
     crm: CrmSettings = field(default_factory=CrmSettings)
     ai: AiSettings = field(default_factory=AiSettings)
     mail: MailSettings = field(default_factory=MailSettings)
@@ -260,6 +271,11 @@ def load_settings() -> Settings:
             api_domain=_env("ZOHO_API_DOMAIN", "https://www.zohoapis.com"),
             api_version=_env("ZOHO_API_VERSION", "v8"),
             client_id=_env("ZOHO_CLIENT_ID"), client_secret=_env("ZOHO_CLIENT_SECRET"), refresh_token=_env("ZOHO_REFRESH_TOKEN"),
+        ),
+        sync=SyncSettings(
+            read_from=_env("PORTAL_READ_FROM", "copy").lower(),
+            interval_minutes=_int("SYNC_INTERVAL_MINUTES", 10),
+            webhook_secret=_env("ZOHO_WEBHOOK_SECRET"),
         ),
         zoho_mcp=ZohoMcpSettings(
             url=_env("ZOHO_MCP_URL"), authorization=_env("ZOHO_MCP_AUTHORIZATION"),

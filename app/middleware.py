@@ -17,6 +17,7 @@ log = logging.getLogger("portal.http")
 CSP = ("default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; "
        "connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'")
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+WEBHOOK_PREFIX = "/api/sync/"  # Zoho webhooks: authenticated by a shared secret instead
 
 
 def install_middleware(app: FastAPI, settings: Settings) -> None:
@@ -35,7 +36,11 @@ def install_middleware(app: FastAPI, settings: Settings) -> None:
     @app.middleware("http")
     async def guard_writes(request: Request, call_next):
         """CSRF defence and size limits for state-changing API requests."""
-        if request.url.path.startswith("/api/") and request.method in WRITE_METHODS:
+        if request.url.path.startswith(WEBHOOK_PREFIX) and request.method in WRITE_METHODS:
+            length = request.headers.get("content-length")
+            if length is None or not length.isdigit() or int(length) > sec.max_body_bytes:
+                return JSONResponse({"error": "Request is too large."}, status_code=413)
+        elif request.url.path.startswith("/api/") and request.method in WRITE_METHODS:
             content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
             if content_type != "application/json":
                 return JSONResponse({"error": "Requests must be JSON."}, status_code=415)

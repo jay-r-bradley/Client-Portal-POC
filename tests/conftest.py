@@ -58,7 +58,7 @@ class Portal:
         return next(e for e in reversed(self.svc.mailer.outbox) if e.to == to)
 
 
-async def build_portal(*, ai: Any = None, crm: MockCrm | None = None, **security: Any) -> Portal:
+async def build_portal(*, ai: Any = None, crm: MockCrm | None = None, sync: bool = True, **security: Any) -> Portal:
     settings = make_settings(**security)
     crm = crm or MockCrm(settings)
     app = create_app(settings, crm=crm, db=Database(settings.database_url), ai=ai, mailer=Mailer(settings.mail), seed=False)
@@ -67,7 +67,22 @@ async def build_portal(*, ai: Any = None, crm: MockCrm | None = None, **security
         async with app.state.services.db.engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)  # a clean database for every test
     await app.state.services.db.create_all()
-    return Portal(app, settings, crm)
+    if sync and app.state.services.sync:
+        await app.state.services.sync.run(full=True)  # what startup does: copy Zoho into the database
+    portal = Portal(app, settings, crm)
+    _open_portals.append(portal)
+    return portal
+
+
+_open_portals: list[Portal] = []
+
+
+@pytest.fixture(autouse=True)
+async def _close_databases():
+    """Closes every database a test opened, so no connection outlives its event loop."""
+    yield
+    while _open_portals:
+        await _open_portals.pop().svc.db.dispose()
 
 
 @pytest.fixture
@@ -77,4 +92,3 @@ async def portal() -> Portal:
     await p.add_user("alex@client.example", "demo1234", contact_id="c1", name="Alex Rivera")
     await p.add_user("priya@client.example", "demo1234", contact_id="c2", name="Priya Shah")
     yield p
-    await p.svc.db.dispose()

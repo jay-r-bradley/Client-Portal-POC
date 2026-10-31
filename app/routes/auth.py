@@ -161,6 +161,8 @@ async def verify_signup(request: Request, response: Response, body: dict = Body(
     user = await svc.users.create(email=guest["email"], password_hash=guest["passwordHash"], role="guest", name=guest["name"],
                                   phone=guest.get("phone"), lead_id=lead["id"], email_verified=True)
     await svc.users.update(user.id, last_login_at=utcnow())
+    if svc.sync:
+        await svc.sync.link_lead_user(lead["id"], user.id)
     await svc.consents.grant(user.id, ["privacy_policy", "contact_about_properties"], policy_version=guest["policyVersion"],
                              ip=client_ip(request), user_agent=user_agent(request))
     await audit(request, "auth.signed_up", actor=user, target={"leadId": lead["id"]},

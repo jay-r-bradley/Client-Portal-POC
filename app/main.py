@@ -21,7 +21,10 @@ from .demo import seed_demo
 from .mailer import Mailer
 from .mcp_zoho.connection import McpToolError
 from .middleware import install_middleware
-from .routes import admin as admin_routes, ai as ai_routes, auth as auth_routes, portal as portal_routes
+from .routes import admin as admin_routes, ai as ai_routes, auth as auth_routes, portal as portal_routes, sync as sync_routes
+from .sync.cached_crm import CachedCrm
+from .sync.engine import SyncEngine
+from .sync.sources import LiveSource, MockSource
 from .web import Services
 from .zoho.api import ZohoApi, ZohoApiError
 from .zoho.live_crm import LiveCrm
@@ -47,14 +50,48 @@ async def maintenance(svc: Services) -> None:
                                   "retentionDays": svc.settings.security.activity_retention_days})
 
 
+def create_sync(settings: Settings, db: Database, crm: Any) -> SyncEngine | None:
+    if isinstance(crm, LiveCrm):
+        return SyncEngine(db=db, source=LiveSource(settings, crm.api), settings=settings)
+    if isinstance(crm, MockCrm):
+        return SyncEngine(db=db, source=MockSource(settings, crm), settings=settings)
+    return None  # a custom CRM object (tests): read it directly
+
+
+async def first_sync(svc: Services) -> None:
+    """A full copy the first time; afterwards only what changed while the app was down."""
+    status = await svc.sync.status()
+    never = not any(m["lastRunAt"] for m in status)
+    summary = await svc.sync.run(full=never)
+    log.info("Initial %s sync: %s", "full" if never else "catch-up", summary)
+
+
+async def sync_loop(svc: Services) -> None:
+    """Catch-up every SYNC_INTERVAL_MINUTES (fixes missed webhooks); a full
+    reconcile once a day also removes records deleted in Zoho."""
+    interval = max(1, svc.settings.sync.interval_minutes) * 60
+    runs_per_day = max(1, 24 * 3600 // interval)
+    run = 0
+    while True:
+        await asyncio.sleep(interval)
+        run += 1
+        try:
+            await svc.sync.run(full=run % runs_per_day == 0)
+        except Exception as err:  # noqa: BLE001
+            log.error("Sync failed: %s", err)
+
+
 def create_app(settings: Settings | None = None, *, crm: Any = None, db: Database | None = None, ai: Any = "auto",
-               mailer: Mailer | None = None, seed: bool | None = None) -> FastAPI:
+               mailer: Mailer | None = None, seed: bool | None = None, run_sync: bool = True) -> FastAPI:
     settings = settings or load_settings()
-    crm = crm or create_crm(settings)
+    zoho = crm or create_crm(settings)
     db = db or Database(settings.database_url)
+    sync = create_sync(settings, db, zoho)
+    # Pages read the database copy of Zoho (fast); writes still go to Zoho first.
+    crm = CachedCrm(db=db, zoho=zoho, sync=sync, settings=settings) if sync and settings.sync.read_from == "copy" else zoho
     ai_service = create_ai(settings, crm) if ai == "auto" else ai
     svc = Services(settings=settings, db=db, crm=crm, mailer=mailer or Mailer(settings.mail), ai=ai_service,
-                   mcp=getattr(ai_service, "mcp", None))
+                   mcp=getattr(ai_service, "mcp", None), sync=sync)
     do_seed = settings.zoho_mode == "mock" if seed is None else seed
 
     @contextlib.asynccontextmanager
@@ -63,6 +100,13 @@ def create_app(settings: Settings | None = None, *, crm: Any = None, db: Databas
         if do_seed:
             await seed_demo(svc.users, svc.activity)
         await maintenance(svc)
+        tasks = []
+        if sync and run_sync:
+            try:
+                await first_sync(svc)
+            except Exception as err:  # noqa: BLE001 - pages fall back to Zoho for missing records
+                log.error("Initial sync failed: %s", err)
+            tasks.append(asyncio.create_task(sync_loop(svc)))
 
         async def daily() -> None:
             while True:
@@ -72,11 +116,13 @@ def create_app(settings: Settings | None = None, *, crm: Any = None, db: Databas
                 except Exception as err:  # noqa: BLE001
                     log.error("Maintenance failed: %s", err)
 
-        task = asyncio.create_task(daily())
+        tasks.append(asyncio.create_task(daily()))
         log.info("%s ready (Zoho mode: %s, AI: %s)", settings.brand_name, settings.zoho_mode,
                  f"{settings.ai.model} via {ai_service.source}" if ai_service else "off")
+        log.info("Pages read from: %s", "database copy of Zoho" if isinstance(crm, CachedCrm) else "Zoho directly")
         yield
-        task.cancel()
+        for task in tasks:
+            task.cancel()
         if svc.mcp:
             await svc.mcp.close()
 
@@ -110,7 +156,7 @@ def create_app(settings: Settings | None = None, *, crm: Any = None, db: Databas
                 "aiEnabled": ai_service is not None, "emailOtp": sec.email_otp, "sessionIdleMinutes": sec.session_idle_minutes,
                 "privacyPolicyVersion": sec.privacy_policy_version, "privacyContactEmail": sec.privacy_contact_email}
 
-    for router in (auth_routes.router, admin_routes.router, ai_routes.router, portal_routes.router):
+    for router in (auth_routes.router, sync_routes.router, admin_routes.router, ai_routes.router, portal_routes.router):
         app.include_router(router)
 
     @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)

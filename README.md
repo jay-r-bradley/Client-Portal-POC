@@ -17,10 +17,10 @@ A secure client portal for real estate brokerages that run on **Zoho CRM**. It i
 - **Activity log:** every sign-in, view, search, message and admin action, with filters and CSV export.
 - **Users:** invite, disable, reset passwords, convert guests to clients, and export or erase personal data.
 - **Referrals:** every referral and its status.
-- **Zoho setup:** connection status and a check for every Zoho field the portal needs.
+- **Zoho setup:** connection status, the sync status of the database copy (with "Sync now"), and a check for every Zoho field the portal needs.
 - **Security:** settings summary and audit-log integrity verification.
 
-Zoho CRM is the system of record. The portal's database holds only logins, consents, one-time codes and the audit trail.
+Zoho CRM is the system of record. The portal's database holds logins, consents, one-time codes and the audit trail, plus a synced copy of the Zoho records the portal shows, so pages load in milliseconds instead of waiting on Zoho. Portal writes go to Zoho first; Zoho changes come back by webhook within seconds, with a catch-up sync every 10 minutes (see [docs/DATABASE.md](docs/DATABASE.md)).
 
 ## Security at a glance
 
@@ -48,13 +48,14 @@ Demo sign-ins (the emailed code is printed in the server log and shown on screen
 | Admin | `admin@brokerage.example` | `admin1234` |
 | Guest | sign up at `#/signup` | |
 
-Tests: `.venv/bin/python -m pytest` (84 tests). Run them against PostgreSQL with `TEST_DATABASE_URL=postgresql+psycopg://...`.
+Tests: `.venv/bin/python -m pytest` (99 tests). Run them against PostgreSQL with `TEST_DATABASE_URL=postgresql+psycopg://...`.
 
 ## Going live
 
 1. **Database:** create PostgreSQL and set `DATABASE_URL`. Schema, setup steps and hosting options are in [docs/DATABASE.md](docs/DATABASE.md).
 2. **Email:** set `MAIL_PROVIDER=smtp` or `zeptomail` so sign-in codes are delivered.
 3. **Zoho CRM:** create the fields in [docs/ZOHO_FIELDS.md](docs/ZOHO_FIELDS.md) (the admin **Zoho setup** page checks them). Then set `ZOHO_MODE=live` and the OAuth credentials (Zoho API console, self client, scopes listed in that doc).
+   Optionally set `ZOHO_WEBHOOK_SECRET` and add the Zoho webhooks in [docs/DATABASE.md](docs/DATABASE.md#setting-up-the-zoho-webhook) so Zoho changes appear within seconds instead of within 10 minutes.
 4. **Zoho MCP (optional, for the AI):** set `ZOHO_MCP_URL`, then run `python -m app.cli mcp-check --schemas` and match `config/zoho-mcp-tools.json` to your server's tools.
 5. **AI (optional):** set `OPENAI_API_KEY` (default model `gpt-5-mini`; change with `OPENAI_MODEL`).
 6. **First admin:** `python -m app.cli create-user --role admin --email you@brokerage.com --name "Your Name"`. After that, invite users from the admin console.
@@ -70,10 +71,11 @@ app/
   middleware.py      Security headers, CSRF, body limit, request timeouts
   web.py             Services, signed-in user check (roles, idle timeout), validation helpers
   config.py          Settings from the environment, incl. every Zoho module/field name
-  db.py              Database models (users, consents, otp_challenges, activity_events)
+  db.py              Database models: portal tables and the copy of Zoho records
   stores.py          Data access; hash-chained audit log
   security/          Passwords (scrypt), sessions, one-time codes, rate limits
-  routes/            auth (sign-in, sign-up, reset), portal (client/guest), ai, admin
+  routes/            auth (sign-in, sign-up, reset), portal (client/guest), ai, admin, sync (Zoho webhook)
+  sync/              Zoho → database sync engine, Zoho/sample sources, CachedCrm (pages read the copy)
   zoho/              REST client, LiveCrm, sample-data MockCrm, mappers/COQL, field catalogue
   mcp_zoho/          Zoho MCP client (official MCP Python SDK), read-only Zoho access
   ai/                OpenAI client, agent loop, client-scoped tools, prompts, AI service

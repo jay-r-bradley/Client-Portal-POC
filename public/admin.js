@@ -34,6 +34,7 @@ const ACTIVITY_LABELS = {
   'admin.user_data_exported': 'Exported user data',
   'admin.user_erased': 'Erased user data',
   'admin.audit_log_verified': 'Verified audit log',
+  'admin.sync_run': 'Ran Zoho sync',
   'system.retention_pruned': 'Old activity deleted (retention)',
 };
 
@@ -98,6 +99,7 @@ function describeActivity(e) {
     case 'admin.password_reset': return t.name || t.email || '';
     case 'admin.activity_exported': return `${d.rows} rows`;
     case 'admin.integration_tested': return `${d.target}: ${d.ok ? 'OK' : 'failed'}`;
+    case 'admin.sync_run': return `${d.full ? 'Full resync' : 'Changes only'}${d.failedModules?.length ? `, failed: ${d.failedModules.join(', ')}` : ''}`;
     default: return '';
   }
 }
@@ -645,8 +647,68 @@ const FIELD_STATUS = {
   unknown: ['badge-warning', 'Not checked'],
 };
 
+const SYNC_LABELS = {
+  agents: 'Agents (Users)', stages: 'Deal stages', contacts: 'Contacts', properties: 'Properties', deals: 'Deals',
+  leads: 'Leads (sign-ups, referrals)', messages: 'Messages (Notes)', tasks: 'Agent tasks',
+};
+
+function syncRows(modules) {
+  return modules.map((m) => html`<tr>
+    <td><strong>${SYNC_LABELS[m.module] || m.module}</strong></td>
+    <td class="num">${m.rows.toLocaleString()}</td>
+    <td class="small">${m.lastRunAt ? relativeTime(m.lastRunAt) : html`<span class="muted">Never</span>`}</td>
+    <td>${m.lastStatus === 'ok' ? html`<span class="badge badge-won">OK</span>`
+      : m.lastStatus === 'error' ? html`<span class="badge badge-lost" title="${m.lastError || ''}">Failed</span>`
+        : html`<span class="badge badge-neutral">Not run</span>`}</td>
+    <td class="small muted">${m.lastStatus === 'error' ? m.lastError : m.lastModifiedAt ? `Up to ${new Date(m.lastModifiedAt).toLocaleString()}` : ''}</td>
+  </tr>`);
+}
+
+function syncSection(sync) {
+  if (!sync.enabled) return '';
+  return html`<section class="section">
+    <div class="section-head">
+      <div><h2>Database copy of Zoho</h2>
+        <p class="muted small">${sync.readFrom === 'copy' ? 'Portal pages read this copy, so they load fast without calling Zoho.' : 'Pages currently read Zoho directly (PORTAL_READ_FROM=live).'}
+          Changes arrive by ${sync.webhook ? 'Zoho webhook within seconds, and ' : ''}a catch-up every ${sync.intervalMinutes} minutes${sync.webhook ? '' : ' (set ZOHO_WEBHOOK_SECRET for instant updates)'}.</p></div>
+      <div class="actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="sync-changes">Sync changes now</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="sync-full" title="Re-reads everything and removes records deleted in Zoho">Full resync</button>
+      </div>
+    </div>
+    <div id="sync-result"></div>
+    <div class="card"><div class="table-wrap"><table class="data-table compact">
+      <thead><tr><th>Zoho data</th><th class="num">Records</th><th>Last sync</th><th>Status</th><th>Details</th></tr></thead>
+      <tbody id="sync-rows">${syncRows(sync.modules)}</tbody>
+    </table></div></div>
+  </section>`;
+}
+
+function wireSync() {
+  const run = async (button, full) => {
+    const label = button.textContent;
+    const out = document.getElementById('sync-result');
+    document.querySelectorAll('#sync-changes, #sync-full').forEach((b) => { b.disabled = true; });
+    setBusy(button, true, 'Syncing…');
+    try {
+      const result = await api('/admin/sync', { method: 'POST', body: { full } });
+      document.getElementById('sync-rows').innerHTML = String(html`${syncRows(result.modules)}`);
+      const failed = Object.entries(result.summary).filter(([, r]) => r && r.ok === false).map(([m]) => SYNC_LABELS[m] || m);
+      out.innerHTML = String(result.summary.skipped ? alertBox('info', 'Another sync is already running. Try again in a moment.')
+        : failed.length ? alertBox('error', `Some data could not be synced: ${failed.join(', ')}.`) : alertBox('success', 'Sync complete.'));
+    } catch (err) {
+      out.innerHTML = String(alertBox('error', err.message));
+    } finally {
+      setBusy(button, false, label);
+      document.querySelectorAll('#sync-changes, #sync-full').forEach((b) => { b.disabled = false; });
+    }
+  };
+  document.getElementById('sync-changes')?.addEventListener('click', (e) => run(e.currentTarget, false));
+  document.getElementById('sync-full')?.addEventListener('click', (e) => run(e.currentTarget, true));
+}
+
 async function adminIntegrationView() {
-  const data = await api('/admin/integration');
+  const [data, sync] = await Promise.all([api('/admin/integration'), api('/admin/sync')]);
   const fields = data.modules.flatMap((m) => m.fields);
   const missing = fields.filter((f) => f.status === 'missing');
   const statusPill = (ok, okText, badText) => (ok ? html`<span class="badge badge-won">${okText}</span>` : html`<span class="badge badge-lost">${badText}</span>`);
@@ -659,7 +721,7 @@ async function adminIntegrationView() {
         <p class="muted small">${data.mode === 'mock'
           ? 'Running on built-in sample data. Set ZOHO_MODE=live with your OAuth credentials to connect your org.'
           : data.crm.ok ? `REST API ${data.crm.apiVersion} at ${data.crm.apiDomain}.` : data.crm.error}</p>
-        <p class="small">Used by all portal pages.</p>
+        <p class="small">The system of record: portal writes go here first.</p>
       </section>
       <section class="card">
         <div class="section-head"><h2>Zoho MCP</h2>${data.mcp.configured ? html`<span class="badge">Configured</span>` : html`<span class="badge badge-neutral">Not configured</span>`}</div>
@@ -671,6 +733,8 @@ async function adminIntegrationView() {
         <p class="muted small">${data.ai.enabled ? `Model ${data.ai.model}. CRM access: ${data.ai.crmAccess}.` : 'Set OPENAI_API_KEY to enable AI search and deal insights.'}</p>
       </section>
     </div>
+
+    ${syncSection(sync)}
 
     <section class="section">
       <div class="section-head">
@@ -699,6 +763,7 @@ async function adminIntegrationView() {
       </div>`)}
     </section>`);
 
+  wireSync();
   document.getElementById('test-mcp')?.addEventListener('click', async (event) => {
     setBusy(event.target, true, 'Testing…');
     const out = document.getElementById('mcp-result');

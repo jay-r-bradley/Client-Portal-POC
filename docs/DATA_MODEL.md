@@ -18,19 +18,19 @@ erDiagram
     crm_agents o|--o{ crm_contacts : "owner"
     users o|--o{ otp_challenges : "user"
     crm_contacts o|--o{ crm_deals : "contact"
+    crm_agents o|--o{ crm_deals : "owner"
     crm_properties o|--o{ crm_deals : "property"
     crm_deal_stages o|--o{ crm_deals : "stage"
-    crm_agents o|--o{ crm_deals : "owner"
+    crm_agents o|--o{ crm_leads : "owner"
     users o|--o{ crm_leads : "portal user"
     crm_contacts o|--o{ crm_leads : "referred by"
-    crm_agents o|--o{ crm_leads : "owner"
     crm_contacts ||--o{ crm_messages : "contact"
     crm_deals o|--o{ crm_messages : "deal"
     crm_properties o|--o{ crm_messages : "property"
+    crm_contacts o|--o{ crm_tasks : "contact"
     crm_deals o|--o{ crm_tasks : "deal"
     crm_messages o|--o{ crm_tasks : "message"
     crm_agents o|--o{ crm_tasks : "owner"
-    crm_contacts o|--o{ crm_tasks : "contact"
     crm_contacts |o..o| users : "client login"
     crm_leads |o..o| users : "guest login"
     activity_events {
@@ -248,7 +248,7 @@ Portal logins: admins, clients (linked to a Zoho Contact with an active deal) an
 | `created_at` | timestamptz |  | no |  |
 | `updated_at` | timestamptz |  | no |  |
 
-Rules: `status IN ('active', 'disabled', 'erased')`; `role <> 'client' OR zoho_contact_id IS NOT NULL OR status = 'erased'`; `role IN ('admin', 'client', 'guest')`
+Rules: `status IN ('active', 'disabled', 'erased')`; `role IN ('admin', 'client', 'guest')`; `role <> 'client' OR zoho_contact_id IS NOT NULL OR status = 'erased'`
 
 #### `consents`
 

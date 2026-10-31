@@ -400,3 +400,7 @@ label.checkbox input { width: auto; margin-top: 3px; }
 .setting-row dt { color: var(--muted); font-weight: 600; }
 .setting-row dd { margin: 0; }
 @media (max-width: 720px) { .setting-row { grid-template-columns: 1fr; gap: 2px; } }
+
+/* Zoho sync status (admin → Zoho setup) */
+.alert-info { background: var(--surface-2); color: var(--text); }
+.data-table .num { text-align: right; font-variant-numeric: tabular-nums; }

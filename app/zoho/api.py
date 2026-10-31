@@ -60,18 +60,20 @@ class ZohoApi:
                 self.api_domain = body["api_domain"].rstrip("/")
             return self.access_token
 
-    async def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None, _retried: bool = False) -> Any:
+    async def request(self, method: str, path: str, *, params: dict[str, Any] | None = None, json: Any = None,
+                      headers: dict[str, str] | None = None, _retried: bool = False) -> Any:
         token = await self.get_access_token()
         url = f"{self.api_domain}/crm/{self.settings.api_version}{path}"
         try:
             res = await self.http.request(method, url, params={k: v for k, v in (params or {}).items() if v is not None},
-                                          json=json, headers={"Authorization": f"Zoho-oauthtoken {token}"})
+                                          json=json, headers={**(headers or {}), "Authorization": f"Zoho-oauthtoken {token}"})
         except httpx.TimeoutException as err:
             raise ZohoApiError(f"Zoho API {method} {path} timed out") from err
         except httpx.HTTPError as err:
             raise ZohoApiError(f"Zoho API {method} {path} failed: {type(err).__name__}") from err
-        # Zoho answers 204 for searches, related lists and COQL with no rows.
-        if res.status_code == 204:
+        # Zoho answers 204 for searches, related lists and COQL with no rows, and
+        # 304 when nothing changed since If-Modified-Since.
+        if res.status_code in (204, 304):
             return None
         try:
             payload = res.json()
@@ -79,7 +81,7 @@ class ZohoApi:
             payload = None
         if res.status_code == 401 and not _retried and (payload or {}).get("code") == "INVALID_TOKEN":
             await self.get_access_token(force=True)
-            return await self.request(method, path, params=params, json=json, _retried=True)
+            return await self.request(method, path, params=params, json=json, headers=headers, _retried=True)
         if res.status_code >= 400:
             payload = payload or {}
             raise ZohoApiError(payload.get("message") or f"Zoho API {method} {path} failed with {res.status_code}",
@@ -120,6 +122,28 @@ class ZohoApi:
         if result.get("status") != "success":
             raise ZohoApiError(result.get("message") or f"Failed to update {module} record", code=result.get("code"))
         return result.get("details") or {}
+
+    async def list_records(self, module: str, fields: list[str], *, modified_since: str | None = None) -> list[dict[str, Any]]:
+        """Every record of a module (or only those changed since a time), oldest change
+        first, following Zoho's page tokens."""
+        out: list[dict[str, Any]] = []
+        params: dict[str, Any] = {"fields": ",".join(dict.fromkeys(fields)), "per_page": 200, "sort_by": "Modified_Time", "sort_order": "asc"}
+        headers = {"If-Modified-Since": modified_since} if modified_since else None
+        paging: dict[str, Any] = {"page": 1}
+        while True:
+            res = await self.request("GET", f"/{_seg(module)}", params=params | paging, headers=headers) or {}
+            out.extend(res.get("data") or [])
+            info = res.get("info") or {}
+            if not info.get("more_records"):
+                return out
+            if info.get("next_page_token"):  # Zoho requires page tokens past 2,000 records
+                paging = {"page_token": info["next_page_token"]}
+            else:
+                paging = {"page": paging.get("page", 1) + 1}
+
+    async def list_users(self) -> list[dict[str, Any]]:
+        res = await self.request("GET", "/users", params={"type": "AllUsers", "per_page": 200})
+        return (res or {}).get("users") or []
 
     async def get_user(self, user_id: str) -> dict[str, Any] | None:
         res = await self.request("GET", f"/users/{_seg(user_id)}")

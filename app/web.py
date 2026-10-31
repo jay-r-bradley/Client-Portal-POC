@@ -40,6 +40,7 @@ class Services:
     mailer: Mailer
     ai: Any = None
     mcp: Any = None
+    sync: Any = None  # SyncEngine: keeps the Zoho copy in the database up to date
     users: UserStore = field(init=False)
     consents: ConsentStore = field(init=False)
     otps: OtpStore = field(init=False)

@@ -209,7 +209,7 @@ async def test_slow_requests_time_out_with_a_friendly_message():
         await asyncio.sleep(2)
         return []
 
-    p.crm.list_deals = slow
+    p.svc.crm.list_deals = slow  # the service the pages use (the database copy)
     res = await c.get("/api/dashboard")
     assert res.status_code == 504
     assert res.json()["error"] == "The request took too long. Please try again."

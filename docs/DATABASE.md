@@ -28,9 +28,27 @@ Internal agent notes and anything else in Zoho the portal doesn't show are never
 1. **Writes go to Zoho first:** messages, referrals, sign-ups and guests' search criteria are written to Zoho, then to the copy. If the Zoho write fails, nothing changes.
 2. **Changes made in Zoho flow back:** a Zoho workflow webhook on create, update or delete notifies the portal within seconds, and the portal refreshes that record.
 3. **A catch-up sync runs every 10 minutes:** it fetches anything modified since `sync_state.last_modified_at`, so a missed webhook is corrected automatically.
-4. **The AI matcher looks records up through Zoho MCP,** scoped to the signed-in client.
+4. **A full reconcile runs once a day** and removes copy rows whose record was deleted in Zoho.
+5. **Missing records are fetched on demand:** if a client is invited before the next sync, their contact and deals are read from Zoho once and stored ("read-through").
+6. **The AI matcher looks records up through Zoho MCP,** scoped to the signed-in client.
 
-**Status:** the tables, keys and rules exist and are tested on PostgreSQL 16 and SQLite. The sync (webhook receiver and catch-up job), and switching page reads from live Zoho calls to the copy, are the next build step. Today the pages read Zoho directly.
+When the app starts, it copies everything the first time, and afterwards only what changed while it was down. If several app instances run, a PostgreSQL advisory lock makes sure only one syncs at a time. Admins see each module's record count, last sync and errors on **Zoho setup → Database copy of Zoho**, with **Sync changes now** and **Full resync** buttons (both audit-logged).
+
+**Status:** built and tested on PostgreSQL 16 and SQLite, with the sample data and with a simulated Zoho API (paging, page tokens, `If-Modified-Since`). Not yet run against a live Zoho org. Set `PORTAL_READ_FROM=live` to make pages read Zoho directly instead.
+
+### Setting up the Zoho webhook
+
+Without it, changes made in Zoho appear within 10 minutes (the catch-up). With it, they appear within seconds.
+
+1. Generate a secret (`python -c "import secrets; print(secrets.token_urlsafe(32))"`) and set it as `ZOHO_WEBHOOK_SECRET` on the portal.
+2. In Zoho CRM go to **Setup → Automation → Actions → Webhooks → Configure Webhook**:
+   - **Method:** POST. **URL:** `https://<your portal>/api/sync/zoho-webhook`.
+   - **Header:** `X-Portal-Webhook-Token` = your secret.
+   - **Body (form data or JSON):** `module` = the module's API name (e.g. `Deals`), `id` = the record's Id merge field, and for the delete rule `event` = `delete`.
+   - Create one webhook per module: Contacts, Deals, Properties, Leads, Notes and Tasks.
+3. Under **Setup → Automation → Workflow Rules**, add a rule per module that runs **on create or edit** and calls its webhook, plus one **on delete** with `event=delete`.
+
+The webhook only tells the portal *which* record changed; the portal then reads that record from Zoho itself, so a forged call can't put data into the copy. Calls without the right secret are rejected, and the endpoint is off when no secret is set.
 
 ### Keys and rules
 

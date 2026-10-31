@@ -314,6 +314,27 @@ async def test_mcp(request: Request, admin: User = Depends(admin_only), svc: Ser
     await audit(request, "admin.integration_tested", actor=admin, details={"target": "Zoho MCP", "ok": True, "tools": len(tools)})
     return {"ok": True, "tools": [t.name for t in tools]}
 
+@router.get("/sync")
+async def sync_status(admin: User = Depends(admin_only), svc: Services = Depends(services)):
+    if not svc.sync:
+        return {"enabled": False, "modules": []}
+    s = svc.settings.sync
+    return {"enabled": True, "readFrom": s.read_from, "intervalMinutes": s.interval_minutes,
+            "webhook": bool(s.webhook_secret), "modules": await svc.sync.status()}
+
+
+@router.post("/sync")
+async def sync_now(request: Request, body: dict = Body(default={}), admin: User = Depends(admin_only), svc: Services = Depends(services)):
+    if not svc.sync:
+        raise ApiError(400, "Sync is not available.")
+    full = body.get("full") is True
+    summary = await svc.sync.run(full=full)
+    failed = [m for m, r in summary.items() if isinstance(r, dict) and not r.get("ok", True)]
+    await audit(request, "admin.sync_run", actor=admin, details={"full": full, "failedModules": failed,
+                                                                  "skipped": "skipped" in summary})
+    return {"summary": summary, "modules": await svc.sync.status()}
+
+
 @router.get("/security")
 async def security(admin: User = Depends(admin_only), svc: Services = Depends(services)):
     s, sec = svc.settings, svc.settings.security

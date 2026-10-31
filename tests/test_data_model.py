@@ -22,7 +22,7 @@ async def test_every_table_has_a_primary_key_and_crm_tables_keep_the_zoho_id():
 
 
 async def test_a_sync_batch_can_arrive_in_any_order():
-    p = await build_portal()
+    p = await build_portal(sync=False)  # an empty copy
     async with p.svc.db.session() as s, s.begin():
         # Deal first, then the records it points at: references are checked at commit.
         s.add(CrmDeal(zoho_id="5001", deal_name="Rivera - Lakeview", stage="Negotiation", amount=Decimal("478000.00"),
@@ -37,7 +37,7 @@ async def test_a_sync_batch_can_arrive_in_any_order():
 
 
 async def test_dangling_references_and_bad_values_are_rejected():
-    p = await build_portal()
+    p = await build_portal(sync=False)  # an empty copy
     with pytest.raises(IntegrityError):
         async with p.svc.db.session() as s, s.begin():
             s.add(CrmDeal(zoho_id="5002", deal_name="Orphan", contact_zoho_id="does-not-exist"))
