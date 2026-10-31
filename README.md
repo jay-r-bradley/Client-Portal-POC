@@ -9,6 +9,19 @@ A white-label client portal for real estate brokerages that already manage their
 
 - **AI assistant (optional).** Plain-English property search and deal insights, powered by OpenAI and reading Zoho CRM through Zoho MCP. See [AI features](#ai-features-openai--zoho-mcp) below.
 
+- **Refer a friend.** Clients refer someone looking for land, a home, a rental, a sale or an investment. Each referral becomes a Zoho **Lead** owned by the client's agent, and the client can follow its progress (Received → Agent in touch → Qualified).
+
+### Two kinds of users
+
+| Role | Who | What they can do |
+|---|---|---|
+| **Client** | A buyer or tenant, linked to their Zoho Contact | My Deals, Find a Property, Contact Agent, Refer a Friend. Only ever sees their own records. |
+| **Admin** | Brokerage staff | The admin console: **Overview** (KPIs, client activity chart, most active clients, most viewed properties, most searched locations), **Activity log** (every sign-in, search, view, message, referral and admin action, with filters and CSV export), **Users** (invite clients or admins, disable, reset passwords, per-user timeline with their Zoho deals), **Referrals**, and **Zoho setup** (connection status and field check). |
+
+Invited users get a one-time temporary password and must set their own on first sign-in. Disabling an account or resetting its password signs the user out everywhere immediately. Admins have no access to client pages, and clients have none to the admin console; both are enforced on the server.
+
+**What the activity log records:** who, what, when, IP address and browser for sign-ins (including failed and blocked ones), dashboard and deal views, property searches (filters or the AI request) and views, messages (subject only, never the body), referrals (name and interest only, never contact details) and every admin action. Passwords are never logged.
+
 Zoho CRM stays the single source of truth. The portal stores nothing about deals or properties. It only keeps login accounts, and each one points at a Zoho Contact.
 
 ## Quick start (demo data, no Zoho needed)
@@ -17,7 +30,8 @@ Zoho CRM stays the single source of truth. The portal stores nothing about deals
 npm install
 npm start
 # open http://localhost:3000
-# sign in as alex@client.example / demo1234  (or priya@client.example / demo1234)
+# client: alex@client.example / demo1234   (or priya@client.example / demo1234)
+# admin:  admin@brokerage.example / admin1234
 ```
 
 `ZOHO_MODE=mock` (the default) runs on built-in sample deals and listings in `src/zoho/mockData.js`.
@@ -33,12 +47,15 @@ Requires Node.js 20.12 or later.
 
 ### 1. CRM data model
 
+**The full field list, with labels, types and which ones to create, is in [`docs/ZOHO_FIELDS.md`](docs/ZOHO_FIELDS.md)** (regenerate with `npm run docs:fields`). The admin console's **Zoho setup** page shows the same list and, once connected, checks your org for each field.
+
 | Zoho module | Used for | Fields the portal reads (default API names) |
 |---|---|---|
 | **Contacts** (standard) | The client. Their **Owner** is "your agent". | `Full_Name`, `Email`, `Phone`/`Mobile`, `Owner` |
 | **Deals** (standard) | The client's deals, linked via `Contact_Name` | `Deal_Name`, `Stage`, `Amount`, `Closing_Date`, `Type`, `Description`, `Owner`, plus a `Property` lookup |
 | **Properties** (custom module) | Listings for search and the showcase | `Name`, `Address`, `City`, `Price`, `Property_Type`, `Listing_Type` (Sale/Rent), `Bedrooms`, `Bathrooms`, `Floor_Area`, `Status`, `Description`, `Photo_URL`, `Featured` (checkbox), `Listed_Date` (date) |
 | **Notes**, **Tasks** (standard) | Portal messages | written by the portal |
+| **Leads** (standard) | Client referrals | written by the portal; needs a `Referred_By` lookup and an `Inquiry_Type` picklist |
 
 Many real estate orgs already have a listings module under a different name, or different field names. Every module and field API name can be overridden in `.env` (see `.env.example` and `src/config.js`), so there's no need to rename anything in Zoho. Only listings whose `Status` equals `CRM_PROPERTY_AVAILABLE_STATUS` (default `Available`) appear in search. A client can still open an off-market property if they have a deal on it.
 
@@ -63,7 +80,13 @@ Pipeline stages are read live from the Deals **Stage** picklist, in Zoho's order
 
 The portal exchanges the refresh token for short-lived access tokens automatically, caches them, and retries once if Zoho reports one expired.
 
-### 3. Give a client access
+### 3. Create the first admin, then invite clients
+
+```bash
+npm run create-user -- --role admin --email you@brokerage.com --name "Your Name" --password 'a-strong-password'
+```
+
+Sign in as that admin and invite clients from **Users → Invite user**. A client's email must match a Contact in Zoho. You can also grant client access from the command line:
 
 ```bash
 npm run create-user -- --email client@example.com --password 'a-strong-password'

@@ -1,6 +1,6 @@
 // CRM service backed by a real Zoho CRM org.
 
-const { mapContact, mapDeal, mapProperty, mapUser, buildPropertyQuery, buildFeaturedQuery } = require('./mappers');
+const { mapContact, mapDeal, mapProperty, mapUser, buildPropertyQuery, buildFeaturedQuery, quote } = require('./mappers');
 const { matchesKeywords } = require('../propertyCriteria');
 const { ZohoApi } = require('./zohoApi');
 
@@ -120,6 +120,29 @@ class LiveCrm {
     return records.map((r) => mapProperty(r, this.crm.property));
   }
 
+  // Connection check for the admin console: reads Deals field metadata.
+  async testConnection() {
+    try {
+      await this.api.getFields(this.crm.dealsModule);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  // Looks up which of the catalogue's fields exist in this org.
+  async checkFields(catalog) {
+    return Promise.all(catalog.map(async (module) => {
+      if (!module.fields.length) return { module: module.module, fields: [] };
+      try {
+        const existing = new Set((await this.api.getFields(module.module)).map((f) => f.api_name));
+        return { module: module.module, fields: module.fields.map((f) => ({ apiName: f.apiName, status: existing.has(f.apiName) ? 'found' : 'missing' })) };
+      } catch (err) {
+        return { module: module.module, error: err.message, fields: module.fields.map((f) => ({ apiName: f.apiName, status: 'unknown' })) };
+      }
+    }));
+  }
+
   async getProperty(propertyId) {
     const record = await this.api.getRecord(this.crm.propertiesModule, propertyId);
     return record ? mapProperty(record, this.crm.property) : null;
@@ -153,6 +176,68 @@ class LiveCrm {
 
   // A client message becomes (1) a Note on their Contact, visible on the CRM
   // timeline, and (2) a Task assigned to the agent so it lands in their queue.
+  // ---- Referral program (Zoho Leads) ----------------------------------------
+
+  get referralColumns() {
+    const { referredByField, interestField } = this.crm.referral;
+    return ['First_Name', 'Last_Name', 'Email', 'Phone', 'Lead_Status', 'Description', 'Created_Time', 'Owner', referredByField, interestField];
+  }
+
+  mapReferral(lead) {
+    const { referredByField, interestField } = this.crm.referral;
+    const referrer = lead[referredByField];
+    return {
+      id: String(lead.id),
+      name: [lead.First_Name, lead.Last_Name].filter(Boolean).join(' '),
+      email: lead.Email || null,
+      phone: lead.Phone || null,
+      interest: lead[interestField] || null,
+      notes: lead.Description || null,
+      leadStatus: lead.Lead_Status || null,
+      createdAt: lead.Created_Time || null,
+      referrer: referrer?.id ? { contactId: String(referrer.id), name: referrer.name || null } : null,
+      agent: lead.Owner?.id ? { id: String(lead.Owner.id), name: lead.Owner.name || null } : null,
+    };
+  }
+
+  // The referral becomes a Lead owned by the referring client's agent, so it
+  // lands in their CRM queue with the source and referrer attached.
+  async createReferral(contactId, r) {
+    const { leadSource, referredByField, interestField, newStatus } = this.crm.referral;
+    const contact = await this.getContact(contactId);
+    const details = await this.api.createRecord(this.crm.leadsModule, {
+      First_Name: r.firstName || undefined,
+      Last_Name: r.lastName,
+      Email: r.email || undefined,
+      Phone: r.phone || undefined,
+      Lead_Source: leadSource,
+      Lead_Status: newStatus,
+      [interestField]: r.interest,
+      [referredByField]: { id: contactId },
+      Description: [`Referred through the client portal by ${contact?.name || 'a client'}.`, `Interested in: ${r.interest}.`, r.notes].filter(Boolean).join('\n'),
+      ...(contact?.ownerId ? { Owner: { id: contact.ownerId } } : {}),
+    });
+    return {
+      id: String(details.id), name: r.name, email: r.email, phone: r.phone, interest: r.interest, notes: r.notes,
+      leadStatus: newStatus, createdAt: details.Created_Time || new Date().toISOString(),
+      referrer: { contactId: String(contactId), name: contact?.name || null }, agent: null,
+    };
+  }
+
+  // Note: Zoho moves converted Leads out of the Leads module, so a referral
+  // that became a client no longer appears here.
+  async listReferrals(contactId) {
+    const { referredByField } = this.crm.referral;
+    const rows = await this.api.coql(`select ${this.referralColumns.join(', ')} from ${this.crm.leadsModule} where ${referredByField} = ${quote(String(contactId))} order by Created_Time desc limit 200`);
+    return rows.map((lead) => this.mapReferral(lead));
+  }
+
+  async listAllReferrals() {
+    const { leadSource } = this.crm.referral;
+    const rows = await this.api.coql(`select ${this.referralColumns.join(', ')} from ${this.crm.leadsModule} where Lead_Source = ${quote(leadSource)} order by Created_Time desc limit 200`);
+    return rows.map((lead) => this.mapReferral(lead));
+  }
+
   async sendMessage(contactId, { subject, body, deal, property }) {
     const context = [
       deal ? `Deal: ${deal.name} (${deal.stage || 'no stage'})` : null,

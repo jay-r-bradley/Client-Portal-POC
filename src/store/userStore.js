@@ -1,18 +1,21 @@
-// Portal login accounts. Each account links a client's email/password to the
-// id of their Contact record in Zoho CRM. Stored as a JSON file for the POC;
-// swap for a database before going to production.
+// Portal login accounts. Two roles:
+//   admin  - brokerage staff: manage client access, see all activity
+//   client - a buyer/tenant, linked to their Contact record in Zoho CRM
+// Stored as a JSON file for the POC; swap for a database before production.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { hashPassword } = require('../auth/passwords');
 
+const ROLES = ['admin', 'client'];
+
 class UserStore {
   constructor(filePath) {
     this.filePath = filePath;
     this.users = [];
     if (filePath && fs.existsSync(filePath)) {
-      this.users = JSON.parse(fs.readFileSync(filePath, 'utf8')).users || [];
+      this.users = (JSON.parse(fs.readFileSync(filePath, 'utf8')).users || []).map(withDefaults);
     }
   }
 
@@ -34,24 +37,50 @@ class UserStore {
     return this.users.find((u) => u.id === id) || null;
   }
 
-  async upsert({ email, password, contactId, name }) {
+  list() {
+    return [...this.users];
+  }
+
+  // Creates or replaces an account (used by seeding and the create-user script).
+  async upsert({ email, password, contactId = null, name, role = 'client', mustChangePassword = false, createdBy = null }) {
+    if (!ROLES.includes(role)) throw new Error(`Unknown role: ${role}`);
+    if (role === 'client' && !contactId) throw new Error('A client account must be linked to a Zoho Contact.');
     const normalized = String(email).trim().toLowerCase();
     const passwordHash = await hashPassword(password);
     const existing = this.findByEmail(normalized);
     if (existing) {
-      Object.assign(existing, { passwordHash, contactId, name, updatedAt: new Date().toISOString() });
+      Object.assign(existing, { passwordHash, contactId, name, role, mustChangePassword, updatedAt: new Date().toISOString() });
+      existing.sessionVersion += 1;
     } else {
-      this.users.push({
+      this.users.push(withDefaults({
         id: crypto.randomUUID(),
         email: normalized,
         passwordHash,
         contactId,
         name,
+        role,
+        mustChangePassword,
+        createdBy,
         createdAt: new Date().toISOString(),
-      });
+      }));
     }
     this.save();
     return this.findByEmail(normalized);
+  }
+
+  // Applies a change and bumps the session version when it should sign the
+  // user out everywhere (password change or reset, account disabled).
+  update(id, changes, { revokeSessions = false } = {}) {
+    const user = this.findById(id);
+    if (!user) return null;
+    Object.assign(user, changes, { updatedAt: new Date().toISOString() });
+    if (revokeSessions) user.sessionVersion += 1;
+    this.save();
+    return user;
+  }
+
+  async setPassword(id, password, { mustChangePassword = false } = {}) {
+    return this.update(id, { passwordHash: await hashPassword(password), mustChangePassword }, { revokeSessions: true });
   }
 
   get size() {
@@ -59,4 +88,15 @@ class UserStore {
   }
 }
 
-module.exports = { UserStore };
+function withDefaults(user) {
+  return { role: 'client', status: 'active', sessionVersion: 1, mustChangePassword: false, lastLoginAt: null, ...user };
+}
+
+// The fields safe to send to the browser.
+function publicUser(user) {
+  if (!user) return null;
+  const { passwordHash: _hash, sessionVersion: _version, ...rest } = user;
+  return rest;
+}
+
+module.exports = { UserStore, ROLES, publicUser };

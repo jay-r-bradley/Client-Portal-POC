@@ -7,14 +7,31 @@ class HttpError extends Error {
   }
 }
 
-function requireAuth(config) {
+// Resolves the signed-in user from the session cookie on every request, so a
+// disabled account or a reset password takes effect immediately. `role`
+// restricts the route to admins or clients.
+function requireAuth({ config, userStore }, { role } = {}) {
   return (req, res, next) => {
     const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
     const session = readSessionToken(token, { secret: config.sessionSecret });
-    if (!session) return next(new HttpError(401, 'Please sign in.'));
-    req.session = session;
+    const user = session && userStore.findById(session.uid);
+    if (!user || user.status !== 'active' || session.sv !== user.sessionVersion) {
+      return next(new HttpError(401, 'Please sign in.'));
+    }
+    if (role && user.role !== role) return next(new HttpError(403, 'You do not have access to this page.'));
+    // Until a temporary password is replaced, only the change-password endpoint works.
+    if (user.mustChangePassword && !req.allowPendingPasswordChange) {
+      return next(new HttpError(403, 'Please set a new password to continue.'));
+    }
+    req.user = user;
+    req.session = { uid: user.id, contactId: user.contactId, role: user.role };
     next();
   };
+}
+
+function allowPendingPasswordChange(req, res, next) {
+  req.allowPendingPasswordChange = true;
+  next();
 }
 
 // CSRF defence for cookie-authenticated writes: state-changing requests must be
@@ -84,4 +101,4 @@ function errorHandler(err, req, res, _next) {
   res.status(err.name === 'ZohoApiError' ? 502 : 500).json({ error: 'Something went wrong. Please try again.' });
 }
 
-module.exports = { HttpError, requireAuth, sameOriginWrites, LoginThrottle, errorHandler };
+module.exports = { HttpError, requireAuth, allowPendingPasswordChange, sameOriginWrites, LoginThrottle, errorHandler };

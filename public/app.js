@@ -95,7 +95,7 @@ function alertBox(kind, message) {
 }
 
 function showError(err) {
-  render(html`<div class="card">${alertBox('error', err.message)}<a href="#/dashboard">Back to my deals</a></div>`);
+  render(html`<div class="card">${alertBox('error', err.message)}<a href="${homeHash()}">Back to the start page</a></div>`);
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +266,8 @@ function loginView() {
         <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
         <button class="btn btn-block" type="submit">Sign in</button>
       </form>
-      ${state.config.mode === 'mock' ? html`<p class="muted small">Demo login: alex@client.example / demo1234</p>` : ''}
+      ${state.config.mode === 'mock' ? html`<p class="muted small">Demo logins: client <strong>alex@client.example</strong> / demo1234 ·
+        admin <strong>admin@brokerage.example</strong> / admin1234</p>` : ''}
       <p class="muted small">Don't have access yet? Ask your agent to invite you.</p>
     </div>
   </div>`);
@@ -278,7 +279,7 @@ function loginView() {
     try {
       await api('/auth/login', { method: 'POST', body: formData(event.target) });
       await loadMe();
-      navigate('#/dashboard');
+      navigate(homeHash());
     } catch (err) {
       document.getElementById('login-error').innerHTML = String(alertBox('error', err.message));
       setBusy(button, false, 'Sign in');
@@ -331,7 +332,13 @@ async function dashboardView() {
               </a>`)}</div>`
           : html`<div class="card empty"><p>You don't have any deals yet.</p><a class="btn" href="#/search">Start a property search</a></div>`}
       </section>
-      <aside>${agentCard(state.me?.agent)}</aside>
+      <aside class="grid">${agentCard(state.me?.agent)}
+        <div class="card referral-cta">
+          <h3>Know someone looking for land or a home?</h3>
+          <p class="muted small">Refer them to your agent and track how it's going.</p>
+          <a class="btn btn-secondary btn-block" href="#/referrals">Refer a friend</a>
+        </div>
+      </aside>
     </div>
 
     <section class="section" id="showcase" hidden>
@@ -944,14 +951,154 @@ function messageBubble(m) {
 // Routing & bootstrap
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Referral program
+// ---------------------------------------------------------------------------
+
+const REFERRAL_STEPS = [['received', 'Received'], ['in_touch', 'Agent in touch'], ['qualified', 'Qualified']];
+
+function referralProgressBar(progress) {
+  if (progress.step === 'closed') return html`<span class="badge badge-neutral">Closed</span>`;
+  const reached = REFERRAL_STEPS.findIndex(([step]) => step === progress.step);
+  return html`<ol class="referral-steps" aria-label="Status: ${progress.label}">
+    ${REFERRAL_STEPS.map(([, label], i) => html`<li class="${i <= reached ? 'done' : ''} ${i === reached ? 'current' : ''}">${label}</li>`)}
+  </ol>`;
+}
+
+function referralItem(r) {
+  return html`<li class="referral-item">
+    <div class="referral-head">
+      <div><strong>${r.name}</strong><div class="muted small">${r.interest} · referred ${formatDate(r.createdAt)}</div></div>
+    </div>
+    ${referralProgressBar(r.progress)}
+  </li>`;
+}
+
+async function referralsView() {
+  const data = await api('/referrals');
+  render(html`
+    <section class="referral-hero">
+      <div>
+        <h1>Refer a friend</h1>
+        <p>Know someone looking for land, a home, or a place to rent, or thinking of selling? Introduce them and ${state.me?.agent?.name || 'your agent'} will take it from there.</p>
+        ${data.rewardText ? html`<p class="referral-reward">${data.rewardText}</p>` : ''}
+      </div>
+    </section>
+    <div class="layout-2">
+      <section class="card">
+        <h2>Who would you like to refer?</h2>
+        <div id="referral-status"></div>
+        <form class="form" id="referral-form">
+          <fieldset class="interest-picker">
+            <legend>They're interested in</legend>
+            <div class="option-grid">${data.interests.map((interest, i) => html`
+              <label class="option-radio"><input type="radio" name="interest" value="${interest}" ${i === 0 ? new Raw('checked') : ''}><span>${interest}</span></label>`)}</div>
+          </fieldset>
+          <label>Full name<input type="text" name="name" maxlength="120" required autocomplete="off"></label>
+          <div class="form-row">
+            <label>Email<input type="email" name="email" maxlength="200" autocomplete="off"></label>
+            <label>Phone<input type="tel" name="phone" maxlength="40" autocomplete="off"></label>
+          </div>
+          <p class="hint muted small">Give at least one way for the agent to reach them.</p>
+          <label>Anything the agent should know? <span class="hint muted">Optional</span>
+            <textarea name="notes" maxlength="1000" placeholder="e.g. Looking for 2–5 acres outside the city to build on, budget around $250k"></textarea></label>
+          <label class="checkbox"><input type="checkbox" name="consent" required>
+            <span>They've agreed that I can share their details and that an agent may contact them.</span></label>
+          <div><button class="btn" type="submit">Send referral</button></div>
+        </form>
+      </section>
+      <aside class="card">
+        <h2>Your referrals</h2>
+        <ul class="referral-list" id="referral-list">${data.referrals.length
+          ? data.referrals.map(referralItem)
+          : html`<li class="muted small" id="no-referrals">You haven't referred anyone yet.</li>`}</ul>
+      </aside>
+    </div>`);
+
+  const form = document.getElementById('referral-form');
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const status = document.getElementById('referral-status');
+    const button = form.querySelector('button[type=submit]');
+    const values = formData(form);
+    values.consent = form.elements.consent.checked;
+    setBusy(button, true, 'Sending…');
+    try {
+      const { referral } = await api('/referrals', { method: 'POST', body: values });
+      document.getElementById('no-referrals')?.remove();
+      document.getElementById('referral-list').insertAdjacentHTML('afterbegin', String(referralItem(referral)));
+      form.reset();
+      status.innerHTML = String(alertBox('success', `Thank you! ${referral.name} has been passed to your agent.`));
+    } catch (err) {
+      status.innerHTML = String(alertBox('error', err.message));
+    } finally {
+      setBusy(button, false, 'Send referral');
+    }
+  });
+}
+
+async function changePasswordView() {
+  const forced = state.me.user.mustChangePassword;
+  render(html`<div class="login-wrap">
+    <div class="card login-card">
+      <h1>${forced ? 'Set your password' : 'Change password'}</h1>
+      <p class="muted">${forced
+        ? 'Welcome! You signed in with a temporary password. Choose your own to continue.'
+        : 'You will stay signed in here and be signed out on other devices.'}</p>
+      <div id="password-error"></div>
+      <form class="form" id="password-form">
+        <label>${forced ? 'Temporary password' : 'Current password'}<input type="password" name="currentPassword" autocomplete="current-password" required></label>
+        <label>New password <span class="hint muted">At least 10 characters</span><input type="password" name="newPassword" autocomplete="new-password" minlength="10" required></label>
+        <label>Confirm new password<input type="password" name="confirmPassword" autocomplete="new-password" required></label>
+        <button class="btn btn-block" type="submit">Save password</button>
+        ${forced ? '' : html`<a class="btn btn-ghost btn-block" href="${homeHash()}">Cancel</a>`}
+      </form>
+    </div>
+  </div>`);
+  document.getElementById('password-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const values = formData(event.target);
+    const errorBox = document.getElementById('password-error');
+    if (values.newPassword !== values.confirmPassword) {
+      errorBox.innerHTML = String(alertBox('error', 'The new passwords do not match.'));
+      return;
+    }
+    const button = event.target.querySelector('button[type=submit]');
+    setBusy(button, true, 'Saving…');
+    try {
+      await api('/auth/change-password', { method: 'POST', body: { currentPassword: values.currentPassword, newPassword: values.newPassword } });
+      await loadMe();
+      navigate(homeHash());
+    } catch (err) {
+      errorBox.innerHTML = String(alertBox('error', err.message));
+      setBusy(button, false, 'Save password');
+    }
+  });
+}
+
+// role: which kind of account may open the route ('any' = signed in, either role).
 const routes = [
   [/^\/login$/, loginView, { public: true }],
-  [/^\/dashboard$/, dashboardView],
-  [/^\/deals\/([^/]+)$/, dealView],
-  [/^\/search$/, searchView],
-  [/^\/properties\/([^/]+)$/, propertyView],
-  [/^\/messages$/, messagesView, { withParams: true }],
+  [/^\/account\/password$/, changePasswordView, { role: 'any' }],
+  [/^\/dashboard$/, dashboardView, { role: 'client' }],
+  [/^\/deals\/([^/]+)$/, dealView, { role: 'client' }],
+  [/^\/search$/, searchView, { role: 'client' }],
+  [/^\/properties\/([^/]+)$/, propertyView, { role: 'client' }],
+  [/^\/messages$/, messagesView, { role: 'client', withParams: true }],
+  [/^\/referrals$/, referralsView, { role: 'client' }],
+  [/^\/admin\/referrals$/, adminReferralsView, { role: 'admin' }],
+  [/^\/admin$/, adminOverviewView, { role: 'admin' }],
+  [/^\/admin\/activity$/, adminActivityView, { role: 'admin', withParams: true }],
+  [/^\/admin\/users$/, adminUsersView, { role: 'admin', withParams: true }],
+  [/^\/admin\/users\/([^/]+)$/, adminUserView, { role: 'admin' }],
+  [/^\/admin\/integration$/, adminIntegrationView, { role: 'admin' }],
 ];
+
+function homeHash() {
+  if (!state.me) return '#/login';
+  if (state.me.user.mustChangePassword) return '#/account/password';
+  return state.me.user.role === 'admin' ? '#/admin' : '#/dashboard';
+}
 
 function navigate(hash) {
   if (location.hash === hash) handleRoute();
@@ -967,20 +1114,29 @@ async function loadMe() {
 }
 
 function updateChrome(path) {
-  const signedIn = Boolean(state.me);
-  document.getElementById('topbar').hidden = !signedIn;
+  const role = state.me?.user.role;
+  const pending = state.me?.user.mustChangePassword;
+  document.getElementById('topbar').hidden = !state.me;
   document.getElementById('user-name').textContent = state.me?.user.name || '';
-  const section = path.split('/')[1];
-  const navKey = { deals: 'dashboard', properties: 'search' }[section] || section;
+  document.getElementById('brand-link').href = homeHash();
+  document.getElementById('brand-tag').hidden = role !== 'admin';
+  document.querySelectorAll('nav[data-role]').forEach((nav) => { nav.hidden = pending || nav.dataset.role !== role; });
+  const parts = path.split('/').filter(Boolean);
+  const navKey = parts[0] === 'admin'
+    ? (parts[1] ? `admin/${parts[1]}` : 'admin')
+    : ({ deals: 'dashboard', properties: 'search' }[parts[0]] || parts[0]);
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === navKey));
 }
 
 async function handleRoute() {
-  const [path, query = ''] = (location.hash.slice(1) || '/dashboard').split('?');
+  const [path, query = ''] = (location.hash.slice(1) || '/').split('?');
   const match = routes.map(([re, view, opts = {}]) => ({ m: path.match(re), view, opts })).find((r) => r.m);
-  if (!match) return navigate('#/dashboard');
+  if (!match) return navigate(homeHash());
   if (!match.opts.public && !state.me) return navigate('#/login');
-  if (match.opts.public && state.me) return navigate('#/dashboard');
+  if (match.opts.public && state.me) return navigate(homeHash());
+  // A temporary password must be replaced before anything else.
+  if (state.me?.user.mustChangePassword && match.view !== changePasswordView) return navigate('#/account/password');
+  if (match.opts.role && match.opts.role !== 'any' && match.opts.role !== state.me.user.role) return navigate(homeHash());
 
   updateChrome(path);
   render(html`<div class="loading">Loading…</div>`);

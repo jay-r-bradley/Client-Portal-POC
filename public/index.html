@@ -5,19 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Client Portal</title>
   <link rel="stylesheet" href="/styles.css">
+  <script src="/admin.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
   <header class="topbar" id="topbar" hidden>
     <div class="topbar-inner">
-      <a class="brand" href="#/dashboard"><span class="brand-mark" aria-hidden="true"></span><span id="brand-name">Client Portal</span></a>
-      <nav class="nav" aria-label="Main">
+      <a class="brand" href="#/" id="brand-link"><span class="brand-mark" aria-hidden="true"></span><span id="brand-name">Client Portal</span><span class="brand-tag" id="brand-tag" hidden>Admin</span></a>
+      <nav class="nav" aria-label="Main" data-role="client" hidden>
         <a href="#/dashboard" data-nav="dashboard">My Deals</a>
         <a href="#/search" data-nav="search">Find a Property</a>
         <a href="#/messages" data-nav="messages">Contact Agent</a>
+        <a href="#/referrals" data-nav="referrals">Refer a Friend</a>
+      </nav>
+      <nav class="nav" aria-label="Admin" data-role="admin" hidden>
+        <a href="#/admin" data-nav="admin">Overview</a>
+        <a href="#/admin/activity" data-nav="admin/activity">Activity log</a>
+        <a href="#/admin/users" data-nav="admin/users">Users</a>
+        <a href="#/admin/referrals" data-nav="admin/referrals">Referrals</a>
+        <a href="#/admin/integration" data-nav="admin/integration">Zoho setup</a>
       </nav>
       <div class="user-menu">
         <span id="user-name"></span>
+        <a class="btn btn-ghost btn-sm" href="#/account/password">Password</a>
         <button type="button" class="btn btn-ghost btn-sm" id="logout">Sign out</button>
       </div>
     </div>

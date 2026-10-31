@@ -9,6 +9,8 @@ const agents = {
 const contacts = {
   c1: { id: 'c1', name: 'Alex Rivera', firstName: 'Alex', email: 'alex@client.example', phone: '+1 512 555 0100', ownerId: 'u1' },
   c2: { id: 'c2', name: 'Priya Shah', firstName: 'Priya', email: 'priya@client.example', phone: '+1 214 555 0199', ownerId: 'u2' },
+  // In Zoho but not yet invited to the portal (for demoing "Invite client").
+  c3: { id: 'c3', name: 'Jordan Lee', firstName: 'Jordan', email: 'jordan@client.example', phone: '+1 713 555 0123', ownerId: 'u2' },
 };
 
 // [id, name, address, city, price, type, listing, beds, baths, sq ft, description, listedDate, featured, status]
@@ -42,6 +44,7 @@ const deals = [
   { id: 'd2', contactId: 'c1', name: 'Rivera - Zilker Park Townhome viewing', stage: 'Viewing Scheduled', amount: 599000, closingDate: '2027-02-01', type: 'Purchase', propertyId: 'p15', agentId: 'u1', modifiedAt: '2026-10-24T10:00:00Z', description: 'Viewing booked for Saturday 11am.' },
   { id: 'd3', contactId: 'c1', name: 'Rivera - East Side Bungalow lease', stage: 'Closed Won', amount: 2950, closingDate: '2026-03-01', type: 'Lease', propertyId: 'p4', agentId: 'u1', modifiedAt: '2026-03-01T09:00:00Z', description: '12-month lease signed.' },
   { id: 'd4', contactId: 'c1', name: 'Rivera - Cedar Park Ranch offer', stage: 'Closed Lost', amount: 510000, closingDate: '2026-06-30', type: 'Purchase', propertyId: 'p16', agentId: 'u1', modifiedAt: '2026-06-30T09:00:00Z', description: 'Outbid by a cash offer.' },
+  { id: 'd6', contactId: 'c3', name: 'Lee - Heights Victorian inquiry', stage: 'Inquiry', amount: 699000, closingDate: '2027-03-15', type: 'Purchase', propertyId: 'p9', agentId: 'u2', modifiedAt: '2026-10-29T14:00:00Z', description: 'Requested floor plans and HOA details.' },
   { id: 'd5', contactId: 'c2', name: 'Shah - Uptown Skyline Condo', stage: 'Under Contract', amount: 605000, closingDate: '2026-11-20', type: 'Purchase', propertyId: 'p5', agentId: 'u2', modifiedAt: '2026-10-27T18:45:00Z', description: 'Inspection passed, financing in underwriting.' },
 ];
 
@@ -49,4 +52,9 @@ const messages = [
   { id: 'm1', contactId: 'c1', from: 'agent', author: 'Maria Santos', subject: 'Welcome to your client portal', body: 'Hi Alex, you can follow all of your deals here and message me any time.', createdAt: '2026-10-20T09:00:00Z' },
 ];
 
-module.exports = { agents, contacts, properties, deals, messages };
+const referrals = [
+  { id: 'r1', referrerId: 'c1', name: 'Sam Patel', email: 'sam.patel@example.net', phone: null, interest: 'Land or a lot', notes: 'Looking for 2–5 acres outside Austin to build on.', leadStatus: 'Contacted', createdAt: '2026-10-12T16:00:00Z' },
+  { id: 'r2', referrerId: 'c2', name: 'Grace Kim', email: 'grace.kim@example.net', phone: '+1 469 555 0110', interest: 'Buying a home', notes: null, leadStatus: 'Not Contacted', createdAt: '2026-10-28T10:30:00Z' },
+];
+
+module.exports = { agents, contacts, properties, deals, messages, referrals };

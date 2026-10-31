@@ -3,10 +3,11 @@ const express = require('express');
 const { authRoutes } = require('./routes/auth');
 const { portalRoutes } = require('./routes/portal');
 const { aiRoutes } = require('./routes/ai');
+const { adminRoutes } = require('./routes/admin');
 const { sameOriginWrites, errorHandler, HttpError } = require('./middleware');
 
 // `ai` is an AiService, or null when AI features are disabled.
-function createApp({ config, crm, userStore, ai = null }) {
+function createApp({ config, crm, userStore, activity, ai = null, integrations = {} }) {
   const app = express();
   app.disable('x-powered-by');
   if (config.isProduction) app.set('trust proxy', 1);
@@ -30,9 +31,10 @@ function createApp({ config, crm, userStore, ai = null }) {
   app.get('/api/config', (req, res) => {
     res.json({ brandName: config.brandName, currency: config.currency, locale: config.locale, mode: config.zohoMode, aiEnabled: Boolean(ai) });
   });
-  app.use('/api/auth', authRoutes({ config, crm, userStore }));
-  app.use('/api/ai', aiRoutes({ config, ai }));
-  app.use('/api', portalRoutes({ config, crm }));
+  app.use('/api/auth', authRoutes({ config, crm, userStore, activity }));
+  app.use('/api/admin', adminRoutes({ config, crm, userStore, activity, ai, integrations }));
+  app.use('/api/ai', aiRoutes({ config, ai, userStore, activity }));
+  app.use('/api', portalRoutes({ config, crm, userStore, activity }));
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found.')));
 
   app.use(express.static(path.join(__dirname, '..', 'public')));

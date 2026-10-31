@@ -6,6 +6,7 @@ const config = require('../src/config');
 const { createApp } = require('../src/app');
 const { MockCrm } = require('../src/zoho/mockCrm');
 const { UserStore } = require('../src/store/userStore');
+const { ActivityLog } = require('../src/store/activityLog');
 
 let server;
 let base;
@@ -14,7 +15,7 @@ test.before(async () => {
   const userStore = new UserStore(null); // in-memory
   await userStore.upsert({ email: 'alex@client.example', password: 'demo1234', contactId: 'c1', name: 'Alex' });
   await userStore.upsert({ email: 'priya@client.example', password: 'demo1234', contactId: 'c2', name: 'Priya' });
-  const app = createApp({ config: { ...config, zohoMode: 'mock' }, crm: new MockCrm(config), userStore });
+  const app = createApp({ config: { ...config, zohoMode: 'mock' }, crm: new MockCrm(config), userStore, activity: new ActivityLog(null) });
   await new Promise((resolve) => {
     server = app.listen(0, resolve);
   });

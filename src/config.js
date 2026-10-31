@@ -26,6 +26,8 @@ const config = {
 
   // Where portal login accounts live (email -> password hash -> Zoho Contact id).
   userStorePath: env.USER_STORE_PATH || path.join(__dirname, '..', 'data', 'users.json'),
+  // Audit trail of sign-ins, searches, views, messages and admin actions (JSON lines).
+  activityLogPath: env.ACTIVITY_LOG_PATH || path.join(__dirname, '..', 'data', 'activity.jsonl'),
 
   // "mock" runs on built-in sample data; "live" talks to Zoho CRM.
   zohoMode: (env.ZOHO_MODE || 'mock').toLowerCase(),
@@ -123,6 +125,19 @@ const config = {
     // replies from inside Zoho by adding a note titled with the reply prefix.
     portalNotePrefix: env.CRM_PORTAL_NOTE_PREFIX || '[Client Portal]',
     portalReplyPrefix: env.CRM_PORTAL_REPLY_PREFIX || '[Portal Reply]',
+
+    // Client referral program: each referral becomes a Lead owned by the client's agent.
+    leadsModule: env.CRM_LEADS_MODULE || 'Leads',
+    referral: {
+      leadSource: env.CRM_REFERRAL_LEAD_SOURCE || 'Client Referral',
+      // Custom lookup on Leads pointing to the referring Contact.
+      referredByField: env.CRM_REFERRAL_REFERRED_BY_FIELD || 'Referred_By',
+      // Custom picklist on Leads: what the referred person is interested in.
+      interestField: env.CRM_REFERRAL_INTEREST_FIELD || 'Inquiry_Type',
+      newStatus: env.CRM_REFERRAL_NEW_STATUS || 'Not Contacted',
+      // Optional reward wording shown to clients, e.g. "a $500 gift card when your referral closes".
+      rewardText: env.PORTAL_REFERRAL_REWARD || '',
+    },
   },
 };
 

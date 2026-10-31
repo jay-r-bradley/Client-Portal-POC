@@ -8,6 +8,7 @@ const { createPortalTools } = require('../src/ai/portalTools');
 const { MockCrm } = require('../src/zoho/mockCrm');
 const { createApp } = require('../src/app');
 const { UserStore } = require('../src/store/userStore');
+const { ActivityLog } = require('../src/store/activityLog');
 
 const aiConfig = { ...config, ai: { ...config.ai, maxRequestsPerHour: 30, cacheMinutes: 60, maxSteps: 6 } };
 
@@ -201,7 +202,7 @@ test('AI usage is capped per client per hour', async () => {
 async function startApp(ai) {
   const userStore = new UserStore(null);
   await userStore.upsert({ email: 'alex@client.example', password: 'demo1234', contactId: 'c1', name: 'Alex' });
-  const app = createApp({ config, crm: new MockCrm(config), userStore, ai });
+  const app = createApp({ config, crm: new MockCrm(config), userStore, ai, activity: new ActivityLog(null) });
   const server = await new Promise((resolve) => { const s = app.listen(0, () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}/api`;
   const login = await fetch(`${base}/auth/login`, {

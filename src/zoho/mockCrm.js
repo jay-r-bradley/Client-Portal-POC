@@ -71,6 +71,15 @@ class MockCrm {
     return [...(featured.length ? featured : available)].sort(newestFirst).slice(0, limit);
   }
 
+  async testConnection() {
+    return { ok: true, note: 'Demo mode: sample data, no Zoho connection.' };
+  }
+
+  // Sample data has every field, but there is no real org to check.
+  async checkFields(catalog) {
+    return catalog.map((module) => ({ module: module.module, fields: module.fields.map((f) => ({ apiName: f.apiName, status: 'sample' })) }));
+  }
+
   async getProperty(propertyId) {
     return this.data.properties.find((p) => p.id === propertyId) || null;
   }
@@ -80,6 +89,31 @@ class MockCrm {
       .filter((m) => m.contactId === contactId)
       .map(({ contactId: _omit, ...m }) => m)
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  }
+
+  toReferral(r) {
+    const referrer = this.data.contacts[r.referrerId];
+    return {
+      id: r.id, name: r.name, email: r.email, phone: r.phone, interest: r.interest, notes: r.notes,
+      leadStatus: r.leadStatus, createdAt: r.createdAt,
+      referrer: referrer ? { contactId: referrer.id, name: referrer.name } : { contactId: r.referrerId, name: null },
+      agent: this.data.agents[referrer?.ownerId] || null,
+    };
+  }
+
+  async createReferral(contactId, referral) {
+    const record = { id: `mock-ref-${this.nextId++}`, referrerId: contactId, ...referral, leadStatus: this.crm.referral.newStatus, createdAt: new Date().toISOString() };
+    this.data.referrals.push(record);
+    return this.toReferral(record);
+  }
+
+  async listReferrals(contactId) {
+    return this.data.referrals.filter((r) => r.referrerId === contactId).map((r) => this.toReferral(r))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async listAllReferrals() {
+    return this.data.referrals.map((r) => this.toReferral(r)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   async sendMessage(contactId, { subject, body, deal, property }) {

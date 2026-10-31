@@ -15,9 +15,9 @@ function aiErrors(err) {
   return err;
 }
 
-function aiRoutes({ config, ai }) {
+function aiRoutes({ config, ai, userStore, activity }) {
   const router = express.Router();
-  router.use(requireAuth(config));
+  router.use(requireAuth({ config, userStore }, { role: 'client' }));
   router.use((req, res, next) => (ai ? next() : next(new HttpError(404, 'AI features are not enabled.'))));
 
   router.post('/property-search', async (req, res) => {
@@ -25,7 +25,12 @@ function aiRoutes({ config, ai }) {
     if (query.length < 3 || query.length > 500) {
       throw new HttpError(400, 'Describe what you are looking for in 3 to 500 characters.');
     }
-    res.json(await ai.propertySearch(req.session.contactId, query).catch((err) => { throw aiErrors(err); }));
+    const result = await ai.propertySearch(req.session.contactId, query).catch((err) => { throw aiErrors(err); });
+    activity.record({
+      actor: req.user, action: 'property.ai_searched', req,
+      details: { query, criteria: result.criteria, results: result.results.length, relaxed: result.relaxed },
+    });
+    res.json(result);
   });
 
   router.get('/insights', async (req, res) => {
