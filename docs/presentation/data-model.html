@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client Portal Data Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: a technical brief. Narrow reading column, full-width figures. Blue = data copied from Zoho, amber = data the portal owns. */
+  --ink: #17212b; --muted: #5a6875; --paper: #f7f8f6; --surface: #ffffff; --line: #d9dee2;
+  --crm: #2c5d8f; --crm-soft: #e6eef6; --own: #a5621a; --own-soft: #f8ecdc; --good: #2f7a52;
+  --display: "IBM Plex Serif", Georgia, serif; --body: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --ink: #e6ebef; --muted: #9aa8b4; --paper: #11161b; --surface: #182029; --line: #2b3742;
+  --crm: #7fb0e3; --crm-soft: #1b2b3c; --own: #e2a35d; --own-soft: #33251a; --good: #6cc394; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --ink: #e6ebef; --muted: #9aa8b4; --paper: #11161b; --surface: #182029; --line: #2b3742;
+  --crm: #7fb0e3; --crm-soft: #1b2b3c; --own: #e2a35d; --own-soft: #33251a; --good: #6cc394; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.6 var(--body); }
+main { max-width: 1120px; margin: 0 auto; padding: 40px 20px 80px; display: grid; gap: 56px; }
+h1, h2, h3, h4 { text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font: 600 2.4rem/1.15 var(--display); }
+h2 { font: 600 1.6rem/1.2 var(--display); margin-bottom: 8px; }
+p { margin: 0; max-width: 68ch; }
+code { font-family: var(--mono); font-size: 0.86em; }
+.muted { color: var(--muted); }
+.eyebrow { font: 600 0.75rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--crm); margin-bottom: 12px; }
+header.top { display: grid; gap: 14px; }
+.facts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.fact { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 130px; }
+.fact b { display: block; font: 600 1.5rem/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.fact span { font-size: 0.82rem; color: var(--muted); }
+section > .lead { margin-bottom: 20px; color: var(--muted); }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+figure .scroll { overflow-x: auto; }
+figcaption { margin-top: 12px; font-size: 0.9rem; color: var(--muted); max-width: 90ch; }
+svg { display: block; width: 100%; height: auto; color: var(--ink); font-family: var(--body); }
+.erd { min-width: 820px; }
+.flowsvg { min-width: 720px; }
+.zone { stroke: none; } .zone-crm { fill: var(--crm-soft); } .zone-own { fill: var(--own-soft); }
+.zone-label { font: 600 11px var(--mono); letter-spacing: 0.08em; fill: var(--muted); }
+.ent-body { fill: var(--surface); stroke: var(--line); }
+.ent-crm .ent-head { fill: var(--crm); } .ent-own .ent-head { fill: var(--own); }
+.ent-name { font: 600 12.5px var(--mono); fill: #fff; }
+.ent-col { font: 12px var(--mono); fill: var(--ink); }
+.ent-key { font: 600 10px var(--mono); } .key-pk { fill: var(--own); } .key-uk { fill: var(--good); } .key-fk { fill: var(--crm); }
+.rel { fill: none; stroke: currentColor; stroke-width: 1.3; opacity: 0.75; }
+.rel-label, .flow-label { font: 11px var(--body); fill: var(--muted); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1.2; }
+.node.accent rect { stroke: var(--crm); stroke-width: 2; fill: var(--crm-soft); }
+.node-title { font: 600 13px var(--body); fill: var(--ink); }
+.node-sub { font: 11.5px var(--body); fill: var(--muted); }
+.flow { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.flow.accent { stroke: var(--crm); color: var(--crm); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 0.85rem; color: var(--muted); margin-top: 10px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.legend .l-crm::before { background: var(--crm); } .legend .l-own::before { background: var(--own); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 18px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: grid; gap: 6px; align-content: start; }
+.card h3 { font: 600 1rem var(--body); }
+.card .stat { font: 600 1.15rem var(--display); color: var(--crm); }
+.card p { font-size: 0.93rem; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th { text-align: left; font: 600 0.72rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); }
+td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+.where-table { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.where-table td:first-child { font-weight: 600; }
+.tag { display: inline-block; font: 600 0.72rem var(--mono); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.tag-crm { background: var(--crm-soft); color: var(--crm); } .tag-own { background: var(--own-soft); color: var(--own); } .tag-no { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.group-title { font: 600 1.15rem var(--display); margin: 28px 0 12px; }
+.group-title span { font: 400 0.9rem var(--body); color: var(--muted); margin-left: 8px; }
+.dict-grid { display: grid; gap: 14px; }
+.dict-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.dict-card header { padding: 14px 16px 6px; display: grid; gap: 2px; }
+.dict-card h4 code { font-size: 1rem; }
+.dict-card header p { font-size: 0.9rem; color: var(--muted); }
+.dict-card .scroll { overflow-x: auto; padding: 0 6px 6px; }
+.dict-card td { font-size: 0.86rem; }
+.dict-card td.type { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+.pill { display: inline-block; font: 600 0.68rem var(--mono); padding: 1px 6px; border-radius: 4px; margin: 0 4px 2px 0; white-space: nowrap; }
+.pill.pk { background: var(--own-soft); color: var(--own); } .pill.uk { background: transparent; color: var(--good); border: 1px solid currentColor; } .pill.fk { background: var(--crm-soft); color: var(--crm); }
+code.zoho { color: var(--crm); font-weight: 600; }
+.status { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.status .card h3::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; background: var(--good); }
+.status .card.next h3::before { background: var(--own); }
+.status ul { margin: 4px 0 0; padding-left: 18px; font-size: 0.92rem; color: var(--muted); display: grid; gap: 4px; }
+footer { font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+a { color: var(--crm); }
+:focus-visible { outline: 2px solid var(--crm); outline-offset: 2px; }
+@media (max-width: 640px) { h1 { font-size: 1.8rem; } main { gap: 40px; padding-top: 24px; } }
+</style>
+</head>
+<body>
+<main>
+<header class="top">
+  <div class="eyebrow">Client Portal · Database design · Proposed v1</div>
+  <h1>What the portal stores, and how it stays in step with Zoho CRM</h1>
+  <p class="muted">The portal runs on Zoho Catalyst with a Supabase PostgreSQL database. Zoho CRM remains the master record for every client,
+    deal, listing and lead. The database keeps the portal's own data plus a synced copy of the Zoho records it shows, so pages load fast
+    without hammering the Zoho API.</p>
+  <div class="facts">
+    <div class="fact"><b>13</b><span>tables</span></div>
+    <div class="fact"><b>9</b><span>synced from Zoho</span></div>
+    <div class="fact"><b>4</b><span>owned by the portal</span></div>
+    <div class="fact"><b>157</b><span>columns</span></div>
+    <div class="fact"><b>18</b><span>foreign keys</span></div>
+  </div>
+</header>
+
+<section>
+  <h2>How data moves</h2>
+  <p class="lead">Clients only ever talk to the portal. Every change is written to Zoho first; Zoho then tells the portal what changed.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 1000 430" role="img" aria-label="Data flow: the browser talks only to the portal. The portal writes to Zoho CRM first, Zoho sends changes back to the portal by webhook plus a catch-up sync, and the portal keeps its Supabase copy updated and reads from it. AI lookups and sign-in emails also go through the portal." class="flowsvg">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+<path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+<g class="node "><rect x="20" y="180" width="150" height="70" rx="8"/><text x="95.0" y="211.0" text-anchor="middle" class="node-title">Client&#x27;s browser</text><text x="95.0" y="229.0" text-anchor="middle" class="node-sub">portal pages</text></g>
+<g class="node accent"><rect x="300" y="165" width="200" height="100" rx="8"/><text x="400.0" y="211.0" text-anchor="middle" class="node-title">Portal app</text><text x="400.0" y="229.0" text-anchor="middle" class="node-sub">Zoho Catalyst</text></g>
+<g class="node "><rect x="700" y="25" width="250" height="90" rx="8"/><text x="825.0" y="66.0" text-anchor="middle" class="node-title">Zoho CRM</text><text x="825.0" y="84.0" text-anchor="middle" class="node-sub">source of truth · Zoho MCP</text></g>
+<g class="node "><rect x="700" y="315" width="250" height="90" rx="8"/><text x="825.0" y="356.0" text-anchor="middle" class="node-title">Supabase PostgreSQL</text><text x="825.0" y="374.0" text-anchor="middle" class="node-sub">portal schema: copy + own data</text></g>
+<g class="node "><rect x="300" y="20" width="200" height="60" rx="8"/><text x="400.0" y="46.0" text-anchor="middle" class="node-title">Zoho ZeptoMail</text><text x="400.0" y="64.0" text-anchor="middle" class="node-sub">sign-in codes</text></g>
+<g class="node "><rect x="300" y="350" width="200" height="60" rx="8"/><text x="400.0" y="376.0" text-anchor="middle" class="node-title">OpenAI</text><text x="400.0" y="394.0" text-anchor="middle" class="node-sub">AI matcher and insights</text></g>
+<path d="M170 205 L298 205" class="flow " marker-end="url(#arrow)"/><text x="234" y="197" text-anchor="middle" class="flow-label">requests</text>
+<path d="M298 228 L172 228" class="flow " marker-end="url(#arrow)"/><text x="234" y="246" text-anchor="middle" class="flow-label">pages</text>
+<path d="M500 185 L698 80" class="flow " marker-end="url(#arrow)"/><text x="580" y="118" text-anchor="middle" class="flow-label">1 · writes first; AI lookups (MCP)</text>
+<path d="M745 117 L520 205" class="flow accent" marker-end="url(#arrow)"/><text x="668" y="182" text-anchor="middle" class="flow-label">2 · webhook on change + catch-up every 10 min</text>
+<path d="M500 245 L698 350" class="flow " marker-end="url(#arrow)"/><text x="620" y="286" text-anchor="middle" class="flow-label">3 · updates its copy</text>
+<path d="M698 375 L502 262" class="flow " marker-end="url(#arrow)"/><text x="560" y="348" text-anchor="middle" class="flow-label">reads in milliseconds</text>
+<path d="M400 163 L400 82" class="flow " marker-end="url(#arrow)"/><text x="424" y="128" text-anchor="middle" class="flow-label">codes</text>
+<path d="M400 267 L400 348" class="flow " marker-end="url(#arrow)"/><text x="437" y="310" text-anchor="middle" class="flow-label">AI requests</text>
+</svg></div>
+    <figcaption>Reads come from the portal's own copy in Supabase. Writes (messages, referrals, sign-ups, guests' search criteria) go to Zoho CRM
+      first and update the copy straight after. Changes agents make in Zoho reach the portal by webhook within seconds, with a catch-up sync every
+      10 minutes as a safety net. The AI never touches Zoho directly: it asks the portal, which looks records up through Zoho MCP for that client only.</figcaption></figure>
+  <div class="cards">
+    <div class="card"><h3>Fast pages</h3><div class="stat">Database reads, not API calls</div>
+      <p>A dashboard is one indexed query on the copy, instead of several Zoho API calls (contact, related deals, each deal's agent) per page view.</p></div>
+    <div class="card"><h3>Zoho stays in charge</h3><div class="stat">Write to Zoho, then copy</div>
+      <p>The portal never edits its copy on its own. If a Zoho write fails, nothing changes and the client is asked to retry.</p></div>
+    <div class="card"><h3>Fresh within seconds</h3><div class="stat">Webhook + 10-minute catch-up</div>
+      <p>Each copied row keeps Zoho's record id and Modified_Time, so the sync only fetches what changed since its last run.</p></div>
+    <div class="card"><h3>Within Zoho's API limits</h3><div class="stat">Calls scale with changes, not visits</div>
+      <p>Zoho CRM limits API calls per day. Reading from the copy means 1,000 clients refreshing their dashboard costs no extra Zoho calls.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>What is stored where</h2>
+  <p class="lead">Only what the portal shows is copied. Internal agent notes and everything else in Zoho stay in Zoho.</p>
+  <div class="where-table"><div class="scroll" style="overflow-x:auto"><table>
+    <thead><tr><th>Data</th><th>Master record</th><th>In the portal database</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Clients, agents, deals, pipeline stages</td><td>Zoho CRM</td><td><span class="tag tag-crm">Synced copy</span></td><td>My Deals, deal status and AI insights load instantly</td></tr>
+      <tr><td>Property listings</td><td>Zoho CRM (Properties)</td><td><span class="tag tag-crm">Synced copy</span></td><td>Search, filters and the featured showcase run as database queries</td></tr>
+      <tr><td>Guest sign-ups and referrals</td><td>Zoho CRM (Leads)</td><td><span class="tag tag-crm">Synced copy</span></td><td>Referral progress and admin reports without API calls</td></tr>
+      <tr><td>Portal messages and follow-up tasks</td><td>Zoho CRM (Notes, Tasks)</td><td><span class="tag tag-crm">Synced copy</span></td><td>The conversation thread; internal notes are never copied</td></tr>
+      <tr><td>Logins, roles, consents, sign-in codes</td><td>Portal</td><td><span class="tag tag-own">Portal-owned</span></td><td>Security data Zoho has no place for</td></tr>
+      <tr><td>Activity log</td><td>Portal</td><td><span class="tag tag-own">Portal-owned</span></td><td>Tamper-evident audit trail, admins only</td></tr>
+      <tr><td>Everything else in Zoho (accounts, internal notes, other modules)</td><td>Zoho CRM</td><td><span class="tag tag-no">Not stored</span></td><td>Not shown in the portal</td></tr>
+    </tbody></table></div></div>
+</section>
+
+<section>
+  <h2>Database diagram</h2>
+  <p class="lead">Every table has a primary key. Copied tables keep a portal id plus the unique Zoho record id, and link to each other through it.</p>
+  <figure><div class="scroll"><svg viewBox="0 0 1050 1060" role="img" aria-label="Entity relationship diagram of the 13 tables: nine copied from Zoho CRM and four owned by the portal, with their primary keys, unique Zoho ids and foreign keys." class="erd">
+<defs>
+  <marker id="many" viewBox="0 0 12 12" refX="12" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+    <path d="M0 6 L12 0 M0 6 L12 6 M0 6 L12 12" fill="none" stroke="currentColor" stroke-width="1.4"/></marker>
+  <marker id="one" viewBox="0 0 12 12" refX="12" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto">
+    <path d="M7 0 L7 12" fill="none" stroke="currentColor" stroke-width="1.6"/></marker>
+</defs>
+<rect x="10" y="12" width="1030" height="786" rx="10" class="zone zone-crm"/>
+<text x="30" y="40" class="zone-label">CRM COPY · synced from Zoho CRM (source of truth)</text>
+<rect x="10" y="812" width="1030" height="240" rx="10" class="zone zone-own"/>
+<text x="30" y="840" class="zone-label">PORTAL-OWNED · held only in the portal database</text>
+<path d="M290 150 L240 150" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="265" y="141" class="rel-label" text-anchor="middle">property</text><path d="M500 120 L550 120" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="525" y="111" class="rel-label" text-anchor="middle">stage</text><path d="M395 257 L395 340" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="418" y="300" class="rel-label" text-anchor="middle">client</text><path d="M480 257 L480 288 L940 288 L940 340" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="700" y="281" class="rel-label" text-anchor="middle">deal owner</text><path d="M135 340 L135 215" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="158" y="270" class="rel-label" text-anchor="middle">about</text><path d="M200 340 L200 305 L320 305 L320 257" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="260" y="298" class="rel-label" text-anchor="middle">about</text><path d="M240 400 L290 400" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="265" y="391" class="rel-label" text-anchor="middle">on</text><path d="M460 340 L460 320 L880 320 L880 340" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="700" y="313" class="rel-label" text-anchor="middle">client&#x27;s agent</text><path d="M550 400 L500 400" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="525" y="391" class="rel-label" text-anchor="middle">referrer</text><path d="M760 400 L810 400" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="785" y="391" class="rel-label" text-anchor="middle">owner</text><path d="M135 600 L135 506" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="158" y="556" class="rel-label" text-anchor="middle">from</text><path d="M240 640 L380 640 L380 485" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="310" y="633" class="rel-label" text-anchor="middle">who</text><path d="M240 700 L915 700 L915 464" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="790" y="693" class="rel-label" text-anchor="middle">task owner</text><path d="M700 527 L700 845 L470 845 L470 870" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="600" y="838" class="rel-label" text-anchor="middle">guest account</text><path d="M240 930 L290 930" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="265" y="921" class="rel-label" text-anchor="middle">user</text><path d="M550 930 L500 930" class="rel" marker-start="url(#many)" marker-end="url(#one)"/><text x="525" y="921" class="rel-label" text-anchor="middle">user</text>
+<g class="ent ent-crm">
+<rect x="30" y="70" width="210" height="145" rx="6" class="ent-body"/>
+<path d="M30 76 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="42" y="90" class="ent-name">crm_properties</text>
+<text x="42" y="116" class="ent-key key-pk">PK</text>
+<text x="70" y="116" class="ent-col">id</text>
+<text x="42" y="137" class="ent-key key-uk">UK</text>
+<text x="70" y="137" class="ent-col">zoho_id</text>
+<text x="70" y="158" class="ent-col">city · price · status</text>
+<text x="70" y="179" class="ent-col">listing_type · bedrooms</text>
+<text x="70" y="200" class="ent-col">featured · listed_date</text>
+</g><g class="ent ent-crm">
+<rect x="290" y="70" width="210" height="187" rx="6" class="ent-body"/>
+<path d="M290 76 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="302" y="90" class="ent-name">crm_deals</text>
+<text x="302" y="116" class="ent-key key-pk">PK</text>
+<text x="330" y="116" class="ent-col">id</text>
+<text x="302" y="137" class="ent-key key-uk">UK</text>
+<text x="330" y="137" class="ent-col">zoho_id</text>
+<text x="302" y="158" class="ent-key key-fk">FK</text>
+<text x="330" y="158" class="ent-col">contact_zoho_id</text>
+<text x="302" y="179" class="ent-key key-fk">FK</text>
+<text x="330" y="179" class="ent-col">property_zoho_id</text>
+<text x="302" y="200" class="ent-key key-fk">FK</text>
+<text x="330" y="200" class="ent-col">stage</text>
+<text x="302" y="221" class="ent-key key-fk">FK</text>
+<text x="330" y="221" class="ent-col">owner_zoho_id</text>
+<text x="330" y="242" class="ent-col">amount · closing_date</text>
+</g><g class="ent ent-crm">
+<rect x="550" y="70" width="210" height="103" rx="6" class="ent-body"/>
+<path d="M550 76 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="562" y="90" class="ent-name">crm_deal_stages</text>
+<text x="562" y="116" class="ent-key key-pk">PK</text>
+<text x="590" y="116" class="ent-col">name</text>
+<text x="590" y="137" class="ent-col">sequence</text>
+<text x="590" y="158" class="ent-col">is_won · is_lost</text>
+</g><g class="ent ent-crm">
+<rect x="810" y="70" width="210" height="103" rx="6" class="ent-body"/>
+<path d="M810 76 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="822" y="90" class="ent-name">sync_state</text>
+<text x="822" y="116" class="ent-key key-pk">PK</text>
+<text x="850" y="116" class="ent-col">module</text>
+<text x="850" y="137" class="ent-col">last_modified_at</text>
+<text x="850" y="158" class="ent-col">last_status · records</text>
+</g><g class="ent ent-crm">
+<rect x="30" y="340" width="210" height="166" rx="6" class="ent-body"/>
+<path d="M30 346 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="42" y="360" class="ent-name">crm_messages</text>
+<text x="42" y="386" class="ent-key key-pk">PK</text>
+<text x="70" y="386" class="ent-col">id</text>
+<text x="42" y="407" class="ent-key key-uk">UK</text>
+<text x="70" y="407" class="ent-col">zoho_id</text>
+<text x="42" y="428" class="ent-key key-fk">FK</text>
+<text x="70" y="428" class="ent-col">contact_zoho_id</text>
+<text x="42" y="449" class="ent-key key-fk">FK</text>
+<text x="70" y="449" class="ent-col">deal_zoho_id</text>
+<text x="42" y="470" class="ent-key key-fk">FK</text>
+<text x="70" y="470" class="ent-col">property_zoho_id</text>
+<text x="70" y="491" class="ent-col">direction · subject · body</text>
+</g><g class="ent ent-crm">
+<rect x="290" y="340" width="210" height="145" rx="6" class="ent-body"/>
+<path d="M290 346 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="302" y="360" class="ent-name">crm_contacts</text>
+<text x="302" y="386" class="ent-key key-pk">PK</text>
+<text x="330" y="386" class="ent-col">id</text>
+<text x="302" y="407" class="ent-key key-uk">UK</text>
+<text x="330" y="407" class="ent-col">zoho_id</text>
+<text x="330" y="428" class="ent-col">first_name · last_name</text>
+<text x="330" y="449" class="ent-col">email · phone</text>
+<text x="302" y="470" class="ent-key key-fk">FK</text>
+<text x="330" y="470" class="ent-col">owner_zoho_id</text>
+</g><g class="ent ent-crm">
+<rect x="550" y="340" width="210" height="187" rx="6" class="ent-body"/>
+<path d="M550 346 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="562" y="360" class="ent-name">crm_leads</text>
+<text x="562" y="386" class="ent-key key-pk">PK</text>
+<text x="590" y="386" class="ent-col">id</text>
+<text x="562" y="407" class="ent-key key-uk">UK</text>
+<text x="590" y="407" class="ent-col">zoho_id</text>
+<text x="590" y="428" class="ent-col">kind: signup | referral</text>
+<text x="562" y="449" class="ent-key key-fk">FK</text>
+<text x="590" y="449" class="ent-col">referred_by_zoho_id</text>
+<text x="562" y="470" class="ent-key key-fk">FK</text>
+<text x="590" y="470" class="ent-col">owner_zoho_id</text>
+<text x="562" y="491" class="ent-key key-fk">FK</text>
+<text x="590" y="491" class="ent-col">portal_user_id</text>
+<text x="590" y="512" class="ent-col">lead_status · match_criteria</text>
+</g><g class="ent ent-crm">
+<rect x="810" y="340" width="210" height="124" rx="6" class="ent-body"/>
+<path d="M810 346 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="822" y="360" class="ent-name">crm_agents</text>
+<text x="822" y="386" class="ent-key key-pk">PK</text>
+<text x="850" y="386" class="ent-col">id</text>
+<text x="822" y="407" class="ent-key key-uk">UK</text>
+<text x="850" y="407" class="ent-col">zoho_id</text>
+<text x="850" y="428" class="ent-col">full_name</text>
+<text x="850" y="449" class="ent-col">email · phone</text>
+</g><g class="ent ent-crm">
+<rect x="30" y="600" width="210" height="166" rx="6" class="ent-body"/>
+<path d="M30 606 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="42" y="620" class="ent-name">crm_tasks</text>
+<text x="42" y="646" class="ent-key key-pk">PK</text>
+<text x="70" y="646" class="ent-col">id</text>
+<text x="42" y="667" class="ent-key key-uk">UK</text>
+<text x="70" y="667" class="ent-col">zoho_id</text>
+<text x="42" y="688" class="ent-key key-fk">FK</text>
+<text x="70" y="688" class="ent-col">message_zoho_id</text>
+<text x="42" y="709" class="ent-key key-fk">FK</text>
+<text x="70" y="709" class="ent-col">owner_zoho_id</text>
+<text x="42" y="730" class="ent-key key-fk">FK</text>
+<text x="70" y="730" class="ent-col">contact · deal</text>
+<text x="70" y="751" class="ent-col">status · due_date</text>
+</g><g class="ent ent-own">
+<rect x="30" y="870" width="210" height="124" rx="6" class="ent-body"/>
+<path d="M30 876 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="42" y="890" class="ent-name">consents</text>
+<text x="42" y="916" class="ent-key key-pk">PK</text>
+<text x="70" y="916" class="ent-col">id</text>
+<text x="42" y="937" class="ent-key key-fk">FK</text>
+<text x="70" y="937" class="ent-col">user_id</text>
+<text x="70" y="958" class="ent-col">kind · policy_version</text>
+<text x="70" y="979" class="ent-col">granted_at · ip</text>
+</g><g class="ent ent-own">
+<rect x="290" y="870" width="210" height="166" rx="6" class="ent-body"/>
+<path d="M290 876 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="302" y="890" class="ent-name">users</text>
+<text x="302" y="916" class="ent-key key-pk">PK</text>
+<text x="330" y="916" class="ent-col">id</text>
+<text x="302" y="937" class="ent-key key-uk">UK</text>
+<text x="330" y="937" class="ent-col">email</text>
+<text x="330" y="958" class="ent-col">role · status</text>
+<text x="330" y="979" class="ent-col">zoho_contact_id ⇢ contacts</text>
+<text x="330" y="1000" class="ent-col">zoho_lead_id ⇢ leads</text>
+<text x="330" y="1021" class="ent-col">session_version</text>
+</g><g class="ent ent-own">
+<rect x="550" y="870" width="210" height="124" rx="6" class="ent-body"/>
+<path d="M550 876 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="562" y="890" class="ent-name">otp_challenges</text>
+<text x="562" y="916" class="ent-key key-pk">PK</text>
+<text x="590" y="916" class="ent-col">id</text>
+<text x="562" y="937" class="ent-key key-fk">FK</text>
+<text x="590" y="937" class="ent-col">user_id</text>
+<text x="590" y="958" class="ent-col">purpose · code_hash</text>
+<text x="590" y="979" class="ent-col">attempts · expires_at</text>
+</g><g class="ent ent-own">
+<rect x="810" y="870" width="210" height="145" rx="6" class="ent-body"/>
+<path d="M810 876 a6 6 0 0 1 6 -6 h198 a6 6 0 0 1 6 6 v24 h-210 z" class="ent-head"/>
+<text x="822" y="890" class="ent-name">activity_events</text>
+<text x="822" y="916" class="ent-key key-pk">PK</text>
+<text x="850" y="916" class="ent-col">seq</text>
+<text x="822" y="937" class="ent-key key-uk">UK</text>
+<text x="850" y="937" class="ent-col">id</text>
+<text x="850" y="958" class="ent-col">actor_user_id ⇢ users</text>
+<text x="850" y="979" class="ent-col">action · details · ip</text>
+<text x="850" y="1000" class="ent-col">prev_hash → hash</text>
+</g>
+</svg></div>
+    <figcaption>Crow's foot marks the "many" side of each link. PK = primary key, UK = unique key (the Zoho record id), FK = foreign key.
+      Dotted arrows inside a box (⇢) are links matched on Zoho ids but not enforced, because logins and the CRM copy are written at different times.
+      Not drawn to keep the picture readable: <code>crm_tasks</code> also references the deal. All links are listed in the data dictionary below.</figcaption>
+    <div class="legend"><span class="l-crm">Copied from Zoho CRM</span><span class="l-own">Owned by the portal</span></div>
+  </figure>
+</section>
+
+<section>
+  <h2>Data dictionary</h2>
+  <p class="lead">Each column, its type and keys, and the Zoho field it comes from. Generated from the code, so it always matches the real schema.</p>
+  <h3 class="group-title">Portal-owned <span>Held only by the portal.</span></h3><div class="dict-grid">
+<section class="dict-card" id="t-users"><header><h4><code>users</code></h4><p>Portal logins: admins, clients (linked to a Zoho Contact with an active deal) and guests (a Zoho Lead).</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td></td></tr><tr><td><code>email</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Sign-in email (lower case)</td></tr><tr><td><code>password_hash</code></td><td class="type">varchar · required</td><td></td><td>scrypt hash; never the password</td></tr><tr><td><code>role</code></td><td class="type">varchar · required</td><td></td><td>admin | client | guest</td></tr><tr><td><code>status</code></td><td class="type">varchar · required</td><td></td><td>active | disabled | erased</td></tr><tr><td><code>name</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>phone</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>zoho_contact_id</code></td><td class="type">varchar</td><td><span class="pill uk">UK</span></td><td>Clients: their Zoho Contact (crm_contacts.zoho_id)</td></tr><tr><td><code>zoho_lead_id</code></td><td class="type">varchar</td><td></td><td>Guests: the Zoho Lead created at sign-up (crm_leads.zoho_id)</td></tr><tr><td><code>must_change_password</code></td><td class="type">boolean · required</td><td></td><td></td></tr><tr><td><code>session_version</code></td><td class="type">integer · required</td><td></td><td>Bumped to sign the user out everywhere</td></tr><tr><td><code>email_verified_at</code></td><td class="type">timestamptz</td><td></td><td></td></tr><tr><td><code>last_login_at</code></td><td class="type">timestamptz</td><td></td><td></td></tr><tr><td><code>converted_at</code></td><td class="type">timestamptz</td><td></td><td></td></tr><tr><td><code>created_by</code></td><td class="type">varchar</td><td><span class="pill fk" title="references users.id">FK → users</span></td><td></td></tr><tr><td><code>created_at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr><tr><td><code>updated_at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-consents"><header><h4><code>consents</code></h4><p>What each person agreed to, when, and under which privacy policy version.</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td></td></tr><tr><td><code>user_id</code></td><td class="type">varchar · required</td><td><span class="pill fk" title="references users.id">FK → users</span></td><td></td></tr><tr><td><code>kind</code></td><td class="type">varchar · required</td><td></td><td>privacy_policy | contact_about_properties</td></tr><tr><td><code>policy_version</code></td><td class="type">varchar · required</td><td></td><td></td></tr><tr><td><code>granted_at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr><tr><td><code>withdrawn_at</code></td><td class="type">timestamptz</td><td></td><td></td></tr><tr><td><code>ip</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>user_agent</code></td><td class="type">varchar</td><td></td><td></td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-otp_challenges"><header><h4><code>otp_challenges</code></h4><p>One-time codes for sign-in, sign-up and password reset (hashes only; deleted after a day).</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td></td></tr><tr><td><code>purpose</code></td><td class="type">varchar · required</td><td></td><td>login | signup | password_reset</td></tr><tr><td><code>email</code></td><td class="type">varchar · required</td><td></td><td></td></tr><tr><td><code>user_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references users.id">FK → users</span></td><td></td></tr><tr><td><code>code_hash</code></td><td class="type">varchar · required</td><td></td><td>HMAC of the code; the code itself is never stored</td></tr><tr><td><code>payload</code></td><td class="type">jsonb</td><td></td><td></td></tr><tr><td><code>attempts</code></td><td class="type">integer · required</td><td></td><td></td></tr><tr><td><code>resends</code></td><td class="type">integer · required</td><td></td><td></td></tr><tr><td><code>last_sent_at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr><tr><td><code>expires_at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr><tr><td><code>consumed_at</code></td><td class="type">timestamptz</td><td></td><td></td></tr><tr><td><code>ip</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>created_at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-activity_events"><header><h4><code>activity_events</code></h4><p>Append-only, hash-chained audit trail. Readable by admins only.</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>seq</code></td><td class="type">bigint</td><td><span class="pill pk">PK</span></td><td></td></tr><tr><td><code>id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td></td></tr><tr><td><code>at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr><tr><td><code>action</code></td><td class="type">varchar · required</td><td></td><td>e.g. auth.login, property.viewed, admin.user_invited</td></tr><tr><td><code>actor_user_id</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>actor_email</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>actor_name</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>actor_role</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>target</code></td><td class="type">jsonb</td><td></td><td></td></tr><tr><td><code>details</code></td><td class="type">jsonb</td><td></td><td></td></tr><tr><td><code>ip</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>user_agent</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>content_hash</code></td><td class="type">varchar · required</td><td></td><td></td></tr><tr><td><code>prev_hash</code></td><td class="type">varchar</td><td></td><td></td></tr><tr><td><code>hash</code></td><td class="type">varchar · required</td><td></td><td>Chains this row to the previous one (tamper evidence)</td></tr><tr><td><code>redacted_at</code></td><td class="type">timestamptz</td><td></td><td></td></tr></tbody></table></div></section>
+</div>
+<h3 class="group-title">CRM copy <span>Synced from Zoho CRM, which stays the source of truth.</span></h3><div class="dict-grid">
+<section class="dict-card" id="t-crm_agents"><header><h4><code>crm_agents</code></h4><p>Copy of Zoho CRM users (agents).</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>full_name</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Users.full_name</code></td></tr><tr><td><code>email</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Users.email</code></td></tr><tr><td><code>phone</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Users.mobile / Users.phone</code></td></tr><tr><td><code>active</code></td><td class="type">boolean · required</td><td></td><td><code class="zoho">Users.status</code></td></tr><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Portal surrogate key</td></tr><tr><td><code>zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Zoho record id (natural key, used for sync and links)</td></tr><tr><td><code>zoho_modified_at</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Modified_Time</code> drives incremental sync</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td>When the portal last refreshed this row</td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-crm_contacts"><header><h4><code>crm_contacts</code></h4><p>Copy of Zoho Contacts (clients).</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>first_name</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Contacts.First_Name</code></td></tr><tr><td><code>last_name</code></td><td class="type">varchar · required</td><td></td><td><code class="zoho">Contacts.Last_Name</code></td></tr><tr><td><code>full_name</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Contacts.Full_Name</code></td></tr><tr><td><code>email</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Contacts.Email</code> matches the portal login</td></tr><tr><td><code>phone</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Contacts.Phone</code></td></tr><tr><td><code>mobile</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Contacts.Mobile</code></td></tr><tr><td><code>owner_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_agents.zoho_id">FK → crm_agents</span></td><td><code class="zoho">Contacts.Owner</code> the client&#x27;s agent</td></tr><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Portal surrogate key</td></tr><tr><td><code>zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Zoho record id (natural key, used for sync and links)</td></tr><tr><td><code>zoho_modified_at</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Modified_Time</code> drives incremental sync</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td>When the portal last refreshed this row</td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-crm_properties"><header><h4><code>crm_properties</code></h4><p>Copy of the Zoho Properties module (listings).</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td class="type">varchar · required</td><td></td><td><code class="zoho">Properties.Name</code></td></tr><tr><td><code>address</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Properties.Address</code></td></tr><tr><td><code>city</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Properties.City</code></td></tr><tr><td><code>price</code></td><td class="type">numeric</td><td></td><td><code class="zoho">Properties.Price</code> monthly rent for rentals</td></tr><tr><td><code>property_type</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Properties.Property_Type</code></td></tr><tr><td><code>listing_type</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Properties.Listing_Type</code> Sale or Rent</td></tr><tr><td><code>bedrooms</code></td><td class="type">integer</td><td></td><td><code class="zoho">Properties.Bedrooms</code></td></tr><tr><td><code>bathrooms</code></td><td class="type">numeric</td><td></td><td><code class="zoho">Properties.Bathrooms</code></td></tr><tr><td><code>floor_area</code></td><td class="type">integer</td><td></td><td><code class="zoho">Properties.Floor_Area</code> sq ft</td></tr><tr><td><code>status</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Properties.Status</code> only Available is shown to clients</td></tr><tr><td><code>description</code></td><td class="type">text</td><td></td><td><code class="zoho">Properties.Description</code></td></tr><tr><td><code>photo_url</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Properties.Photo_URL</code></td></tr><tr><td><code>featured</code></td><td class="type">boolean · required</td><td></td><td><code class="zoho">Properties.Featured</code></td></tr><tr><td><code>listed_date</code></td><td class="type">date</td><td></td><td><code class="zoho">Properties.Listed_Date</code></td></tr><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Portal surrogate key</td></tr><tr><td><code>zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Zoho record id (natural key, used for sync and links)</td></tr><tr><td><code>zoho_modified_at</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Modified_Time</code> drives incremental sync</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td>When the portal last refreshed this row</td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-crm_deal_stages"><header><h4><code>crm_deal_stages</code></h4><p>The Deals Stage picklist, in pipeline order.</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td><code class="zoho">Deals.Stage picklist value</code></td></tr><tr><td><code>sequence</code></td><td class="type">integer · required</td><td></td><td><code class="zoho">pick_list_values.sequence_number</code></td></tr><tr><td><code>is_won</code></td><td class="type">boolean · required</td><td></td><td>Closing stage counted as won</td></tr><tr><td><code>is_lost</code></td><td class="type">boolean · required</td><td></td><td>Closing stage counted as lost</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td></td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-crm_deals"><header><h4><code>crm_deals</code></h4><p>Copy of Zoho Deals.</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>deal_name</code></td><td class="type">varchar · required</td><td></td><td><code class="zoho">Deals.Deal_Name</code></td></tr><tr><td><code>stage</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_deal_stages.name">FK → crm_deal_stages</span></td><td><code class="zoho">Deals.Stage</code></td></tr><tr><td><code>amount</code></td><td class="type">numeric</td><td></td><td><code class="zoho">Deals.Amount</code></td></tr><tr><td><code>closing_date</code></td><td class="type">date</td><td></td><td><code class="zoho">Deals.Closing_Date</code></td></tr><tr><td><code>type</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Deals.Type</code></td></tr><tr><td><code>description</code></td><td class="type">text</td><td></td><td><code class="zoho">Deals.Description</code> shown to the client as the latest update</td></tr><tr><td><code>contact_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_contacts.zoho_id">FK → crm_contacts</span></td><td><code class="zoho">Deals.Contact_Name</code> the client; clients only see their own deals</td></tr><tr><td><code>property_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_properties.zoho_id">FK → crm_properties</span></td><td><code class="zoho">Deals.Property</code></td></tr><tr><td><code>owner_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_agents.zoho_id">FK → crm_agents</span></td><td><code class="zoho">Deals.Owner</code> agent for this deal</td></tr><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Portal surrogate key</td></tr><tr><td><code>zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Zoho record id (natural key, used for sync and links)</td></tr><tr><td><code>zoho_modified_at</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Modified_Time</code> drives incremental sync</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td>When the portal last refreshed this row</td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-crm_leads"><header><h4><code>crm_leads</code></h4><p>Copy of Zoho Leads from portal sign-ups and referrals.</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>kind</code></td><td class="type">varchar · required</td><td></td><td>signup | referral | other (from Lead_Source)</td></tr><tr><td><code>first_name</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Leads.First_Name</code></td></tr><tr><td><code>last_name</code></td><td class="type">varchar · required</td><td></td><td><code class="zoho">Leads.Last_Name</code></td></tr><tr><td><code>email</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Leads.Email</code></td></tr><tr><td><code>phone</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Leads.Phone</code></td></tr><tr><td><code>lead_source</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Leads.Lead_Source</code></td></tr><tr><td><code>lead_status</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Leads.Lead_Status</code></td></tr><tr><td><code>inquiry_type</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Leads.Inquiry_Type</code> referrals</td></tr><tr><td><code>match_criteria</code></td><td class="type">text</td><td></td><td><code class="zoho">Leads.Portal_Match_Criteria</code> guests&#x27; latest search</td></tr><tr><td><code>description</code></td><td class="type">text</td><td></td><td><code class="zoho">Leads.Description</code></td></tr><tr><td><code>referred_by_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_contacts.zoho_id">FK → crm_contacts</span></td><td><code class="zoho">Leads.Referred_By</code> referring client</td></tr><tr><td><code>owner_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_agents.zoho_id">FK → crm_agents</span></td><td><code class="zoho">Leads.Owner</code></td></tr><tr><td><code>portal_user_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references users.id">FK → users</span></td><td>Guest account created by this sign-up</td></tr><tr><td><code>created_time</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Leads.Created_Time</code></td></tr><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Portal surrogate key</td></tr><tr><td><code>zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Zoho record id (natural key, used for sync and links)</td></tr><tr><td><code>zoho_modified_at</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Modified_Time</code> drives incremental sync</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td>When the portal last refreshed this row</td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-crm_messages"><header><h4><code>crm_messages</code></h4><p>Copy of portal conversation Notes (never internal agent notes).</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>contact_zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill fk" title="references crm_contacts.zoho_id">FK → crm_contacts</span></td><td><code class="zoho">Notes.Parent_Id (Contact)</code></td></tr><tr><td><code>deal_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_deals.zoho_id">FK → crm_deals</span></td><td>Deal the message is about (from the note text)</td></tr><tr><td><code>property_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_properties.zoho_id">FK → crm_properties</span></td><td>Property the message is about</td></tr><tr><td><code>direction</code></td><td class="type">varchar · required</td><td></td><td>client (&quot;[Client Portal]&quot; note) | agent (&quot;[Portal Reply]&quot; note)</td></tr><tr><td><code>subject</code></td><td class="type">varchar · required</td><td></td><td><code class="zoho">Notes.Note_Title</code> without the prefix</td></tr><tr><td><code>body</code></td><td class="type">text</td><td></td><td><code class="zoho">Notes.Note_Content</code></td></tr><tr><td><code>author_name</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Notes.Owner</code> agent replies</td></tr><tr><td><code>created_time</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Notes.Created_Time</code></td></tr><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Portal surrogate key</td></tr><tr><td><code>zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Zoho record id (natural key, used for sync and links)</td></tr><tr><td><code>zoho_modified_at</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Modified_Time</code> drives incremental sync</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td>When the portal last refreshed this row</td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-crm_tasks"><header><h4><code>crm_tasks</code></h4><p>Copy of follow-up Tasks created for agents.</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>message_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_messages.zoho_id">FK → crm_messages</span></td><td>The message that created it</td></tr><tr><td><code>subject</code></td><td class="type">varchar · required</td><td></td><td><code class="zoho">Tasks.Subject</code></td></tr><tr><td><code>status</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Tasks.Status</code></td></tr><tr><td><code>priority</code></td><td class="type">varchar</td><td></td><td><code class="zoho">Tasks.Priority</code></td></tr><tr><td><code>due_date</code></td><td class="type">date</td><td></td><td><code class="zoho">Tasks.Due_Date</code></td></tr><tr><td><code>owner_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_agents.zoho_id">FK → crm_agents</span></td><td><code class="zoho">Tasks.Owner</code></td></tr><tr><td><code>contact_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_contacts.zoho_id">FK → crm_contacts</span></td><td><code class="zoho">Tasks.Who_Id</code></td></tr><tr><td><code>deal_zoho_id</code></td><td class="type">varchar</td><td><span class="pill fk" title="references crm_deals.zoho_id">FK → crm_deals</span></td><td><code class="zoho">Tasks.What_Id</code></td></tr><tr><td><code>id</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Portal surrogate key</td></tr><tr><td><code>zoho_id</code></td><td class="type">varchar · required</td><td><span class="pill uk">UK</span></td><td>Zoho record id (natural key, used for sync and links)</td></tr><tr><td><code>zoho_modified_at</code></td><td class="type">timestamptz</td><td></td><td><code class="zoho">Modified_Time</code> drives incremental sync</td></tr><tr><td><code>synced_at</code></td><td class="type">timestamptz · required</td><td></td><td>When the portal last refreshed this row</td></tr></tbody></table></div></section>
+<section class="dict-card" id="t-sync_state"><header><h4><code>sync_state</code></h4><p>Zoho -&gt; portal sync progress per module.</p></header>
+<div class="scroll"><table><thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Zoho source / meaning</th></tr></thead><tbody><tr><td><code>module</code></td><td class="type">varchar</td><td><span class="pill pk">PK</span></td><td>Zoho module, e.g. Deals</td></tr><tr><td><code>last_modified_at</code></td><td class="type">timestamptz</td><td></td><td>Newest Modified_Time copied (incremental cursor)</td></tr><tr><td><code>last_run_at</code></td><td class="type">timestamptz</td><td></td><td></td></tr><tr><td><code>last_status</code></td><td class="type">varchar</td><td></td><td>ok | error</td></tr><tr><td><code>last_error</code></td><td class="type">text</td><td></td><td></td></tr><tr><td><code>records_synced</code></td><td class="type">integer · required</td><td></td><td></td></tr></tbody></table></div></section>
+</div>
+</section>
+
+<section>
+  <h2>Where we are</h2>
+  <div class="status">
+    <div class="card"><h3>Built and tested</h3><ul>
+      <li>All 13 tables, keys and rules, in a private <code>portal</code> schema</li>
+      <li>Schema applied and the full test suite passing on PostgreSQL 16 (Supabase runs PostgreSQL)</li>
+      <li>Supabase lockdown: no access through Supabase's public Data API</li>
+      <li>Portal-owned tables in use: logins, consents, sign-in codes, audit trail</li></ul></div>
+    <div class="card next"><h3>Next to build</h3><ul>
+      <li>The Zoho → portal sync: webhook receiver and 10-minute catch-up, filling the copied tables</li>
+      <li>Switch page reads (deals, listings, referrals, messages) from live Zoho calls to the copy</li>
+      <li>Connect a live Zoho CRM org and Supabase project, then measure page load times</li></ul></div>
+  </div>
+</section>
+
+<footer>Source: <code>app/db.py</code> in the Client Portal repository. SQL: <code>db/schema.sql</code>. Field mapping: <code>docs/ZOHO_FIELDS.md</code>.</footer>
+</main>
+</body>
+</html>
