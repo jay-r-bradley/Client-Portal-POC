@@ -3,6 +3,8 @@ const { HttpError, requireAuth } = require('../middleware');
 const { normalizeCriteria, CriteriaError } = require('../propertyCriteria');
 const { INTERESTS, normalizeReferral, referralProgress, ReferralError } = require('../referrals/referrals');
 
+const { createLeadCriteriaSync } = require('../guests/guests');
+
 const MAX_REFERRALS_PER_DAY = 10;
 
 function summarize(deals, { wonStages, lostStages }) {
@@ -13,14 +15,17 @@ function summarize(deals, { wonStages, lostStages }) {
   return { total: deals.length, active: deals.length - won - lost, won, lost, byStage };
 }
 
-// Client-facing routes. Every request is scoped to the signed-in client's Zoho
-// Contact, and the meaningful ones are written to the activity log.
+// Client- and guest-facing routes. Client requests are scoped to the signed-in
+// client's Zoho Contact; guests only reach the property routes. The meaningful
+// requests are written to the activity log.
 function portalRoutes({ config, crm, userStore, activity }) {
   const router = express.Router();
-  router.use(requireAuth({ config, userStore }, { role: 'client' }));
+  router.use(requireAuth({ config, userStore }, { role: ['client', 'guest'] }));
+  const clientOnly = (req, res, next) => (req.user.role === 'client' ? next() : next(new HttpError(403, 'This page is for clients with an active deal.')));
+  const syncLeadCriteria = createLeadCriteriaSync({ crm, config });
   const log = (req, action, target, details) => activity.record({ actor: req.user, action, target, details, req });
 
-  router.get('/dashboard', async (req, res) => {
+  router.get('/dashboard', clientOnly, async (req, res) => {
     const [deals, stages] = await Promise.all([crm.listDeals(req.session.contactId), crm.getStages()]);
     deals.sort((a, b) => new Date(b.modifiedAt || 0) - new Date(a.modifiedAt || 0));
     log(req, 'portal.dashboard_viewed', null, { deals: deals.length });
@@ -33,7 +38,7 @@ function portalRoutes({ config, crm, userStore, activity }) {
     });
   });
 
-  router.get('/deals/:id', async (req, res) => {
+  router.get('/deals/:id', clientOnly, async (req, res) => {
     const deal = await crm.getDeal(req.session.contactId, req.params.id);
     if (!deal) throw new HttpError(404, 'Deal not found.');
     log(req, 'deal.viewed', { dealId: deal.id, name: deal.name }, { stage: deal.stage });
@@ -63,6 +68,7 @@ function portalRoutes({ config, crm, userStore, activity }) {
     }
     const properties = await crm.searchProperties(criteria);
     log(req, 'property.searched', null, { criteria, results: properties.length });
+    syncLeadCriteria(req.user, criteria);
     res.json({ criteria, count: properties.length, properties });
   });
 
@@ -71,6 +77,7 @@ function portalRoutes({ config, crm, userStore, activity }) {
     if (!property) throw new HttpError(404, 'Property not found.');
     // Off-market listings are only visible to clients who have a deal on them.
     if (property.status !== config.crm.availableStatus) {
+      if (req.user.role !== 'client') throw new HttpError(404, 'Property not found.');
       const deals = await crm.listDeals(req.session.contactId);
       if (!deals.some((d) => d.property?.id === property.id)) throw new HttpError(404, 'Property not found.');
     }
@@ -78,7 +85,7 @@ function portalRoutes({ config, crm, userStore, activity }) {
     res.json({ property });
   });
 
-  router.get('/messages', async (req, res) => {
+  router.get('/messages', clientOnly, async (req, res) => {
     const [messages, agent] = await Promise.all([
       crm.listMessages(req.session.contactId),
       crm.getAgent(req.session.contactId),
@@ -86,7 +93,7 @@ function portalRoutes({ config, crm, userStore, activity }) {
     res.json({ agent, messages });
   });
 
-  router.post('/messages', async (req, res) => {
+  router.post('/messages', clientOnly, async (req, res) => {
     const subject = String(req.body?.subject || '').trim();
     const body = String(req.body?.body || '').trim();
     if (!subject || subject.length > 120) throw new HttpError(400, 'Please enter a subject (up to 120 characters).');
@@ -111,12 +118,12 @@ function portalRoutes({ config, crm, userStore, activity }) {
     createdAt: r.createdAt, progress: referralProgress(r.leadStatus),
   });
 
-  router.get('/referrals', async (req, res) => {
+  router.get('/referrals', clientOnly, async (req, res) => {
     const referrals = await crm.listReferrals(req.session.contactId);
     res.json({ referrals: referrals.map(clientReferral), interests: INTERESTS, rewardText: config.crm.referral.rewardText || null });
   });
 
-  router.post('/referrals', async (req, res) => {
+  router.post('/referrals', clientOnly, async (req, res) => {
     let referral;
     try {
       referral = normalizeReferral(req.body || {});

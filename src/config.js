@@ -54,6 +54,8 @@ const config = {
     baseUrl: env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
     timeoutMs: Number(env.OPENAI_TIMEOUT_MS || 45000),
     maxRequestsPerHour: Number(env.AI_MAX_REQUESTS_PER_HOUR || 30),
+    // Guests sign up on their own, so they get a smaller AI allowance.
+    guestMaxRequestsPerHour: Number(env.AI_GUEST_MAX_REQUESTS_PER_HOUR || 10),
     cacheMinutes: Number(env.AI_CACHE_MINUTES || 60),
   },
 
@@ -125,6 +127,15 @@ const config = {
     // replies from inside Zoho by adding a note titled with the reply prefix.
     portalNotePrefix: env.CRM_PORTAL_NOTE_PREFIX || '[Client Portal]',
     portalReplyPrefix: env.CRM_PORTAL_REPLY_PREFIX || '[Portal Reply]',
+
+    // Guest sign-ups: each becomes a Lead, and their latest search criteria are kept on it.
+    signup: {
+      leadSource: env.CRM_SIGNUP_LEAD_SOURCE || 'Portal Sign-up',
+      // Optional Zoho user id to own new sign-up Leads; otherwise Zoho's assignment rules apply.
+      leadOwnerId: env.CRM_SIGNUP_LEAD_OWNER_ID || null,
+      // Custom multi-line field on Leads holding what the guest is searching for.
+      criteriaField: env.CRM_SIGNUP_CRITERIA_FIELD || 'Portal_Match_Criteria',
+    },
 
     // Client referral program: each referral becomes a Lead owned by the client's agent.
     leadsModule: env.CRM_LEADS_MODULE || 'Leads',

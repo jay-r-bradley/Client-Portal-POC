@@ -216,7 +216,7 @@ function propertyCard(p, match = null) {
     </div>
     <div class="property-actions actions">
       <a class="btn btn-secondary btn-sm" href="#/properties/${encodeURIComponent(p.id)}">View details</a>
-      <a class="btn btn-sm" href="#/messages?propertyId=${encodeURIComponent(p.id)}">I'm interested</a>
+      ${isGuest() ? '' : html`<a class="btn btn-sm" href="#/messages?propertyId=${encodeURIComponent(p.id)}">I'm interested</a>`}
     </div>
   </article>`;
 }
@@ -268,7 +268,7 @@ function loginView() {
       </form>
       ${state.config.mode === 'mock' ? html`<p class="muted small">Demo logins: client <strong>alex@client.example</strong> / demo1234 ·
         admin <strong>admin@brokerage.example</strong> / admin1234</p>` : ''}
-      <p class="muted small">Don't have access yet? Ask your agent to invite you.</p>
+      <p class="muted small">New here? <a href="#/signup">Create a free account</a> to browse our available properties.</p>
     </div>
   </div>`);
 
@@ -626,7 +626,7 @@ function renderResults() {
       : html`<div class="card empty">
           <p><strong>No available properties match these filters.</strong></p>
           <p>Try removing a filter above, or let your agent know what you're looking for.</p>
-          <a class="btn" href="#/messages?search=1">Ask my agent to find one</a>
+          ${isGuest() ? html`<p class="muted small">Our agents have your search details and will reach out with options.</p>` : html`<a class="btn" href="#/messages?search=1">Ask my agent to find one</a>`}
         </div>`}`);
 }
 
@@ -714,6 +714,8 @@ async function searchView() {
       </form>
       ${aiOn ? html`<p class="search-hint"><span class="ai-dot" aria-hidden="true"></span>AI search understands budgets, locations, bedrooms and wishes like "quiet street" or "home office".</p>` : ''}
     </section>
+    ${isGuest() ? html`<div class="guest-note" role="note"><strong>Welcome, ${state.me.user.name.split(' ')[0]}.</strong>
+      You're browsing as a guest. One of our agents will follow up on what you're searching for, and once you're working on a deal with us, it will appear right here in your portal.</div>` : ''}
     <div class="filter-toolbar">
       <div class="filter-bar" id="filter-bar" role="toolbar" aria-label="Search filters"></div>
       <div class="active-filters" id="active-filters"></div>
@@ -825,12 +827,15 @@ async function propertyView(id) {
         ${p.description ? html`<h3>About this property</h3><p>${p.description}</p>` : ''}
       </section>
       <aside class="grid">
-        <div class="card">
-          <h3>Interested?</h3>
-          <p class="muted small">Send your agent a message to book a viewing or ask a question about this property.</p>
-          <a class="btn btn-block" href="#/messages?propertyId=${encodeURIComponent(p.id)}">Contact my agent</a>
-        </div>
-        ${agentCard(state.me?.agent, { withButton: false })}
+        ${isGuest()
+          ? html`<div class="card"><h3>Interested?</h3>
+              <p class="muted small">Our agents can see the properties and budget you're searching for and will reach out with next steps, including viewings.</p></div>`
+          : html`<div class="card">
+              <h3>Interested?</h3>
+              <p class="muted small">Send your agent a message to book a viewing or ask a question about this property.</p>
+              <a class="btn btn-block" href="#/messages?propertyId=${encodeURIComponent(p.id)}">Contact my agent</a>
+            </div>
+            ${agentCard(state.me?.agent, { withButton: false })}`}
       </aside>
     </div>`);
 }
@@ -1037,6 +1042,71 @@ async function referralsView() {
   });
 }
 
+function signupView() {
+  render(html`<div class="signup-wrap">
+    <section class="signup-pitch">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>${state.config.brandName}</div>
+      <h1>Find your next property</h1>
+      <p>Create a free account to explore our available listings and get matched to homes and land that fit your budget.</p>
+      <ul class="signup-points">
+        <li>Browse every property we currently have available</li>
+        <li>${state.config.aiEnabled ? 'Describe what you want in plain English and get matched' : 'Search by budget, location and size'}</li>
+        <li>See our newest acquisitions first</li>
+        <li>One of our agents follows up on what you're looking for</li>
+      </ul>
+    </section>
+    <section class="card signup-card">
+      <h2>Create your free account</h2>
+      <div id="signup-error"></div>
+      <form class="form" id="signup-form" novalidate>
+        <label>Full name<input type="text" name="name" autocomplete="name" maxlength="120" required></label>
+        <div class="form-row">
+          <label>Email<input type="email" name="email" autocomplete="email" maxlength="200" required></label>
+          <label>Phone <span class="hint muted">Optional</span><input type="tel" name="phone" autocomplete="tel" maxlength="40"></label>
+        </div>
+        <label>Password <span class="hint muted">At least 10 characters</span><input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+        <fieldset class="interest-picker">
+          <legend>I'm looking to</legend>
+          <div class="option-grid">
+            <label class="option-radio"><input type="radio" name="listingType" value="Sale" checked><span>Buy</span></label>
+            <label class="option-radio"><input type="radio" name="listingType" value="Rent"><span>Rent</span></label>
+          </div>
+        </fieldset>
+        <div class="form-row">
+          <label>Budget up to <span class="hint muted">Optional</span><input type="number" name="budgetMax" min="0" step="1000" inputmode="numeric" placeholder="e.g. 650000"></label>
+          <label>Preferred location <span class="hint muted">Optional</span><input type="text" name="location" maxlength="80" placeholder="e.g. Austin"></label>
+        </div>
+        <label class="checkbox"><input type="checkbox" name="consent" required>
+          <span>I agree that ${state.config.brandName} may contact me about properties that match what I'm looking for.</span></label>
+        <button class="btn btn-block" type="submit">Create account</button>
+      </form>
+      <p class="muted small signup-switch">Already have an account? <a href="#/login">Sign in</a></p>
+    </section>
+  </div>`);
+
+  document.getElementById('signup-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const values = { ...formData(form), consent: form.elements.consent.checked };
+    const button = form.querySelector('button[type=submit]');
+    setBusy(button, true, 'Creating your account…');
+    try {
+      const { initialFilters } = await api('/auth/signup', { method: 'POST', body: values });
+      // Start the guest's first search from what they told us.
+      try {
+        sessionStorage.setItem(SEARCH_KEY, JSON.stringify({ query: '', filters: { ...EMPTY_FILTERS, ...initialFilters }, sort: 'price_asc' }));
+      } catch {
+        // Storage unavailable: they start from the showcase instead.
+      }
+      await loadMe();
+      navigate(homeHash());
+    } catch (err) {
+      document.getElementById('signup-error').innerHTML = String(alertBox('error', err.message));
+      setBusy(button, false, 'Create account');
+    }
+  });
+}
+
 async function changePasswordView() {
   const forced = state.me.user.mustChangePassword;
   render(html`<div class="login-wrap">
@@ -1079,11 +1149,12 @@ async function changePasswordView() {
 // role: which kind of account may open the route ('any' = signed in, either role).
 const routes = [
   [/^\/login$/, loginView, { public: true }],
+  [/^\/signup$/, signupView, { public: true }],
   [/^\/account\/password$/, changePasswordView, { role: 'any' }],
   [/^\/dashboard$/, dashboardView, { role: 'client' }],
   [/^\/deals\/([^/]+)$/, dealView, { role: 'client' }],
-  [/^\/search$/, searchView, { role: 'client' }],
-  [/^\/properties\/([^/]+)$/, propertyView, { role: 'client' }],
+  [/^\/search$/, searchView, { role: ['client', 'guest'] }],
+  [/^\/properties\/([^/]+)$/, propertyView, { role: ['client', 'guest'] }],
   [/^\/messages$/, messagesView, { role: 'client', withParams: true }],
   [/^\/referrals$/, referralsView, { role: 'client' }],
   [/^\/admin\/referrals$/, adminReferralsView, { role: 'admin' }],
@@ -1097,7 +1168,11 @@ const routes = [
 function homeHash() {
   if (!state.me) return '#/login';
   if (state.me.user.mustChangePassword) return '#/account/password';
-  return state.me.user.role === 'admin' ? '#/admin' : '#/dashboard';
+  return { admin: '#/admin', guest: '#/search' }[state.me.user.role] || '#/dashboard';
+}
+
+function isGuest() {
+  return state.me?.user.role === 'guest';
 }
 
 function navigate(hash) {
@@ -1119,7 +1194,10 @@ function updateChrome(path) {
   document.getElementById('topbar').hidden = !state.me;
   document.getElementById('user-name').textContent = state.me?.user.name || '';
   document.getElementById('brand-link').href = homeHash();
-  document.getElementById('brand-tag').hidden = role !== 'admin';
+  const tag = document.getElementById('brand-tag');
+  tag.hidden = role !== 'admin' && role !== 'guest';
+  tag.textContent = role === 'guest' ? 'Guest' : 'Admin';
+  tag.classList.toggle('brand-tag-guest', role === 'guest');
   document.querySelectorAll('nav[data-role]').forEach((nav) => { nav.hidden = pending || nav.dataset.role !== role; });
   const parts = path.split('/').filter(Boolean);
   const navKey = parts[0] === 'admin'
@@ -1136,7 +1214,7 @@ async function handleRoute() {
   if (match.opts.public && state.me) return navigate(homeHash());
   // A temporary password must be replaced before anything else.
   if (state.me?.user.mustChangePassword && match.view !== changePasswordView) return navigate('#/account/password');
-  if (match.opts.role && match.opts.role !== 'any' && match.opts.role !== state.me.user.role) return navigate(homeHash());
+  if (match.opts.role && match.opts.role !== 'any' && ![].concat(match.opts.role).includes(state.me.user.role)) return navigate(homeHash());
 
   updateChrome(path);
   render(html`<div class="loading">Loading…</div>`);

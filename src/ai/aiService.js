@@ -32,15 +32,15 @@ class AiService {
 
   // ---- Guards -------------------------------------------------------------
 
-  // Per-client hourly cap so one account cannot run up the OpenAI bill.
-  consume(contactId) {
+  // Per-account hourly cap so one account cannot run up the OpenAI bill.
+  consume(key, max = this.config.ai.maxRequestsPerHour) {
     const windowStart = this.now() - 3600 * 1000;
-    const recent = (this.usage.get(contactId) || []).filter((t) => t > windowStart);
-    if (recent.length >= this.config.ai.maxRequestsPerHour) {
+    const recent = (this.usage.get(key) || []).filter((t) => t > windowStart);
+    if (recent.length >= max) {
       throw new AiLimitError('You have reached the hourly limit for the AI assistant. Please try again later.');
     }
     recent.push(this.now());
-    this.usage.set(contactId, recent);
+    this.usage.set(key, recent);
   }
 
   async cached(key, compute) {
@@ -62,12 +62,15 @@ class AiService {
 
   // ---- Natural-language property search -----------------------------------
 
-  async propertySearch(contactId, query) {
-    this.consume(contactId);
-    const portal = await this.portalTools(contactId);
+  // Guests (no Zoho Contact) get the same matcher without any deal tools, under
+  // their own, smaller hourly allowance.
+  async propertySearch(contactId, query, { guestId = null } = {}) {
+    if (guestId) this.consume(`guest:${guestId}`, this.config.ai.guestMaxRequestsPerHour);
+    else this.consume(contactId);
+    const portal = await this.portalTools(guestId ? null : contactId);
     const { result } = await this.agent(propertySearchPrompt({ currency: this.config.currency, today: this.today() }), {
       user: { clientRequest: query },
-      tools: portal.pick('search_listings', 'get_listing', 'list_my_deals'),
+      tools: guestId ? portal.pick('search_listings', 'get_listing') : portal.pick('search_listings', 'get_listing', 'list_my_deals'),
     });
 
     // Trust the model for order and wording only; property data comes from the CRM.

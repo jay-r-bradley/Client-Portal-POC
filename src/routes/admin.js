@@ -4,7 +4,7 @@
 const crypto = require('node:crypto');
 const express = require('express');
 const { HttpError, requireAuth } = require('../middleware');
-const { publicUser, ROLES } = require('../store/userStore');
+const { publicUser } = require('../store/userStore');
 const { fieldCatalog } = require('../zoho/fieldCatalog');
 const { referralProgress } = require('../referrals/referrals');
 
@@ -37,6 +37,20 @@ function activityFilters(query) {
 }
 
 function adminRoutes({ config, crm, userStore, activity, ai, integrations }) {
+  const isOpenDeal = (deal) => !config.crm.wonStages.includes(deal.stage) && !config.crm.lostStages.includes(deal.stage);
+
+  // Client access requires a Zoho Contact with this email and at least one open deal.
+  async function contactWithActiveDeal(email) {
+    const contact = await crm.findContactByEmail(email);
+    if (!contact) throw new HttpError(404, 'No Zoho CRM Contact has that email. Add them in Zoho (or convert their Lead) first.');
+    const deals = await crm.listDeals(contact.id);
+    const open = deals.filter(isOpenDeal);
+    if (!open.length) {
+      throw new HttpError(422, `${contact.name} has no active deal in Zoho. Client access is given once they have an open deal.`);
+    }
+    return { contact, openDeals: open };
+  }
+
   const router = express.Router();
   router.use(requireAuth({ config, userStore }, { role: 'admin' }));
   const log = (req, action, target, details) => activity.record({ actor: req.user, action, target, details, req });
@@ -76,6 +90,8 @@ function adminRoutes({ config, crm, userStore, activity, ai, integrations }) {
         propertyViews7d: count(last7, 'property.viewed'),
         messages7d: count(last7, 'message.sent'),
         referrals30d: count(last30, 'referral.submitted'),
+        guestSignups30d: count(last30, 'auth.signed_up'),
+        guests: userStore.list().filter((u) => u.role === 'guest').length,
       },
       activityByDay: days.map((date) => ({ date, events: perDay.get(date) })),
       // Demand signals: what clients look at and where they want to live.
@@ -142,15 +158,18 @@ function adminRoutes({ config, crm, userStore, activity, ai, integrations }) {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const role = String(req.body?.role || 'client');
     if (!EMAIL_PATTERN.test(email)) throw new HttpError(400, 'Enter a valid email address.');
-    if (!ROLES.includes(role)) throw new HttpError(400, 'Unknown role.');
-    if (userStore.findByEmail(email)) throw new HttpError(409, 'That email already has portal access.');
+    if (!['client', 'admin'].includes(role)) throw new HttpError(400, 'Invite a client or an admin. Guests sign up on their own.');
+    const existing = userStore.findByEmail(email);
+    if (existing?.role === 'guest') throw new HttpError(409, 'That email already has a guest account. Use "Convert to client" on it instead.');
+    if (existing) throw new HttpError(409, 'That email already has portal access.');
 
     let contactId = null;
     let name = String(req.body?.name || '').trim().slice(0, 120) || null;
+    let openDeals = 0;
     if (role === 'client') {
-      const contact = await crm.findContactByEmail(email);
-      if (!contact) throw new HttpError(404, 'No Zoho CRM Contact has that email. Add the client in Zoho first, then invite them.');
+      const { contact, openDeals: open } = await contactWithActiveDeal(email);
       contactId = contact.id;
+      openDeals = open.length;
       name = contact.name;
     } else if (!name) {
       throw new HttpError(400, 'Enter the admin\'s name.');
@@ -158,8 +177,22 @@ function adminRoutes({ config, crm, userStore, activity, ai, integrations }) {
 
     const password = temporaryPassword();
     const user = await userStore.upsert({ email, password, contactId, name, role, mustChangePassword: true, createdBy: req.user.id });
-    log(req, 'admin.user_invited', { userId: user.id, email: user.email, name: user.name }, { role, contactId });
+    log(req, 'admin.user_invited', { userId: user.id, email: user.email, name: user.name }, { role, contactId, openDeals });
     res.status(201).json({ user: publicUser(user), temporaryPassword: password });
+  });
+
+  // A guest becomes a client once their Lead is a Contact with an open deal in
+  // Zoho. Same login and password; they see their deals on next page load.
+  router.post('/users/:id/convert-to-client', async (req, res) => {
+    const user = findUser(req.params.id);
+    if (user.role !== 'guest') throw new HttpError(400, 'Only guest accounts can be converted.');
+    const { contact, openDeals } = await contactWithActiveDeal(user.email);
+    if (userStore.list().some((u) => u.contactId === contact.id && u.id !== user.id)) {
+      throw new HttpError(409, 'Another portal account is already linked to that Zoho Contact.');
+    }
+    const updated = userStore.update(user.id, { role: 'client', contactId: contact.id, name: contact.name, convertedAt: new Date().toISOString() });
+    log(req, 'admin.user_converted', { userId: user.id, email: user.email, name: contact.name }, { contactId: contact.id, leadId: user.leadId, openDeals: openDeals.length });
+    res.json({ user: publicUser(updated) });
   });
 
   router.post('/users/:id/status', (req, res) => {

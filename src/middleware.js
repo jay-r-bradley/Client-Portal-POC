@@ -8,8 +8,8 @@ class HttpError extends Error {
 }
 
 // Resolves the signed-in user from the session cookie on every request, so a
-// disabled account or a reset password takes effect immediately. `role`
-// restricts the route to admins or clients.
+// disabled account or a reset password takes effect immediately. `role` (one
+// role or a list) restricts who may use the route.
 function requireAuth({ config, userStore }, { role } = {}) {
   return (req, res, next) => {
     const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
@@ -18,7 +18,7 @@ function requireAuth({ config, userStore }, { role } = {}) {
     if (!user || user.status !== 'active' || session.sv !== user.sessionVersion) {
       return next(new HttpError(401, 'Please sign in.'));
     }
-    if (role && user.role !== role) return next(new HttpError(403, 'You do not have access to this page.'));
+    if (role && ![].concat(role).includes(user.role)) return next(new HttpError(403, 'You do not have access to this page.'));
     // Until a temporary password is replaced, only the change-password endpoint works.
     if (user.mustChangePassword && !req.allowPendingPasswordChange) {
       return next(new HttpError(403, 'Please set a new password to continue.'));

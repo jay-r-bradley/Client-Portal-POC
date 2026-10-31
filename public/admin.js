@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 const ACTIVITY_LABELS = {
+  'auth.signed_up': 'Signed up as guest',
   'auth.login': 'Signed in',
   'auth.login_failed': 'Failed sign-in',
   'auth.login_blocked': 'Sign-in blocked',
@@ -21,6 +22,7 @@ const ACTIVITY_LABELS = {
   'message.sent': 'Messaged agent',
   'referral.submitted': 'Referred a friend',
   'admin.user_invited': 'Invited user',
+  'admin.user_converted': 'Converted guest to client',
   'admin.user_disabled': 'Disabled user',
   'admin.user_enabled': 'Re-enabled user',
   'admin.password_reset': 'Reset password',
@@ -72,6 +74,9 @@ function describeActivity(e) {
     case 'property.viewed': return [t.name, d.city].filter(Boolean).join(', ');
     case 'message.sent': return `“${d.subject}”${t.name ? ` about ${t.name}` : ''}`;
     case 'referral.submitted': return `${t.name} · ${d.interest}`;
+    case 'auth.signed_up': return ['New Zoho Lead', d.listingType === 'Rent' ? 'rent' : d.listingType ? 'buy' : null,
+      d.budgetMax ? `up to ${compactMoney(d.budgetMax)}` : null, d.location].filter(Boolean).join(' · ');
+    case 'admin.user_converted': return `${t.name || t.email} (Zoho Contact ${d.contactId})`;
     case 'auth.login_failed': return d.email || '';
     case 'auth.login_blocked': return d.reason || '';
     case 'admin.user_invited': return `${t.name || t.email} as ${d.role}`;
@@ -96,7 +101,7 @@ function relativeTime(iso) {
 function actorLabel(e) {
   if (!e.actor) return html`<span class="muted">Unknown visitor</span>`;
   return html`<a href="#/admin/users/${encodeURIComponent(e.actor.id)}">${e.actor.name || e.actor.email}</a>
-    ${e.actor.role === 'admin' ? html`<span class="badge badge-role-admin">Admin</span>` : ''}`;
+    ${e.actor.role === 'admin' ? html`<span class="badge badge-role-admin">Admin</span>` : e.actor.role === 'guest' ? html`<span class="badge badge-guest">Guest</span>` : ''}`;
 }
 
 function activityRows(items, { showUser = true } = {}) {
@@ -124,7 +129,9 @@ function statusBadge(user) {
 }
 
 function roleBadge(role) {
-  return role === 'admin' ? html`<span class="badge badge-role-admin">Admin</span>` : html`<span class="badge badge-neutral">Client</span>`;
+  if (role === 'admin') return html`<span class="badge badge-role-admin">Admin</span>`;
+  if (role === 'guest') return html`<span class="badge badge-guest">Guest</span>`;
+  return html`<span class="badge badge-neutral">Client</span>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +246,7 @@ async function adminOverviewView() {
       ${tile('Searches, 7 days', k.searches7d, 'Filter and AI searches')}
       ${tile('Property views, 7 days', k.propertyViews7d, null)}
       ${tile('Messages to agents, 7 days', k.messages7d, null)}
+      ${tile('Guest sign-ups, 30 days', k.guestSignups30d, html`<a href="#/admin/users?role=guest">${k.guests} guest accounts</a>`)}
       ${tile('Referrals, 30 days', k.referrals30d, html`<a href="#/admin/referrals">View referrals</a>`)}
     </div>
 
@@ -359,6 +367,7 @@ function wireCopyButtons(root) {
 function userActions(user) {
   if (user.id === state.me.user.id) return html`<span class="muted small">This is you</span>`;
   return html`<div class="actions">
+    ${user.role === 'guest' ? html`<button type="button" class="btn btn-secondary btn-sm" data-user-action="convert" data-user-id="${user.id}" data-user-name="${user.name || user.email}">Convert to client</button>` : ''}
     <button type="button" class="btn btn-ghost btn-sm" data-user-action="reset" data-user-id="${user.id}" data-user-name="${user.name || user.email}">Reset password</button>
     <button type="button" class="btn btn-ghost btn-sm ${user.status === 'active' ? 'btn-danger' : ''}" data-user-action="${user.status === 'active' ? 'disable' : 'enable'}"
       data-user-id="${user.id}" data-user-name="${user.name || user.email}">${user.status === 'active' ? 'Disable' : 'Enable'}</button>
@@ -374,12 +383,15 @@ function wireUserActions(root, onDone) {
       reset: `Reset ${userName}'s password? They will be signed out and need the new temporary password to sign in.`,
       disable: `Disable ${userName}'s portal access? They will be signed out immediately.`,
       enable: `Re-enable ${userName}'s portal access?`,
+      convert: `Convert ${userName} to a client? This needs a Zoho Contact with the same email and an active deal. They keep their login and will see their deals.`,
     };
     if (!window.confirm(prompts[userAction])) return;
     button.disabled = true;
     try {
       const result = userAction === 'reset'
         ? await api(`/admin/users/${encodeURIComponent(userId)}/reset-password`, { method: 'POST', body: {} })
+        : userAction === 'convert'
+        ? await api(`/admin/users/${encodeURIComponent(userId)}/convert-to-client`, { method: 'POST', body: {} })
         : await api(`/admin/users/${encodeURIComponent(userId)}/status`, { method: 'POST', body: { status: userAction === 'disable' ? 'disabled' : 'active' } });
       onDone(result);
     } catch (err) {
@@ -390,16 +402,22 @@ function wireUserActions(root, onDone) {
 }
 
 async function adminUsersView(params) {
-  const { users } = await api('/admin/users');
-  const clients = users.filter((u) => u.role === 'client');
+  const { users: allUsers } = await api('/admin/users');
+  const roleFilter = ['client', 'guest', 'admin'].includes(params.get('role')) ? params.get('role') : '';
+  const users = roleFilter ? allUsers.filter((u) => u.role === roleFilter) : allUsers;
+  const counts = { client: 0, guest: 0, admin: 0 };
+  allUsers.forEach((u) => { counts[u.role] += 1; });
+  const tabs = [['', 'All', allUsers.length], ['client', 'Clients', counts.client], ['guest', 'Guests', counts.guest], ['admin', 'Admins', counts.admin]];
 
   render(html`
-    ${adminHead('Users', `${clients.length} client${clients.length === 1 ? '' : 's'} and ${users.length - clients.length} admin${users.length - clients.length === 1 ? '' : 's'} with portal access.`,
+    ${adminHead('Users', 'Clients are invited once they have an active deal in Zoho. Guests sign up on their own and are created as Zoho Leads.',
       html`<button type="button" class="btn" id="invite-toggle">Invite user</button>`)}
+    <nav class="tabs" aria-label="Filter users by role">${tabs.map(([role, label, n]) => html`
+      <a href="#/admin/users${role ? `?role=${role}` : ''}" class="${roleFilter === role ? 'active' : ''}">${label} <span class="tab-count">${n}</span></a>`)}</nav>
     <div id="invite-result"></div>
     <section class="card invite-card" id="invite-card" ${params.get('invite') ? '' : new Raw('hidden')}>
       <h2>Invite a user</h2>
-      <p class="muted small">Clients must already exist as a Contact in Zoho CRM with the same email. Their portal account is linked to that Contact.</p>
+      <p class="muted small">A client must be a Contact in Zoho CRM with the same email <strong>and have an active deal</strong>. Their portal account is linked to that Contact. If they already signed up as a guest, use "Convert to client" on their account instead.</p>
       <div id="invite-error"></div>
       <form class="form invite-form" id="invite-form">
         <label>Role<select name="role" id="invite-role"><option value="client">Client</option><option value="admin">Admin (brokerage staff)</option></select></label>
@@ -474,6 +492,8 @@ async function adminUserView(id) {
           <div><dt>Created</dt><dd>${formatDate(user.createdAt)}</dd></div>
           <div><dt>Last sign-in</dt><dd>${user.lastLoginAt ? formatDate(user.lastLoginAt, true) : 'Never'}</dd></div>
           <div><dt>Password</dt><dd>${user.mustChangePassword ? 'Temporary (not yet changed)' : 'Set by user'}</dd></div>
+          ${user.role === 'guest' ? html`<div><dt>Zoho Lead ID</dt><dd>${user.leadId || '—'}</dd></div>
+            <div><dt>Phone</dt><dd>${user.phone || '—'}</dd></div>` : ''}
           ${user.role === 'client' ? html`<div><dt>Zoho Contact ID</dt><dd>${user.contactId}</dd></div>
             <div><dt>Phone (Zoho)</dt><dd>${contact?.phone || '—'}</dd></div>` : ''}
         </dl>

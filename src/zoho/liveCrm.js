@@ -176,6 +176,28 @@ class LiveCrm {
 
   // A client message becomes (1) a Note on their Contact, visible on the CRM
   // timeline, and (2) a Task assigned to the agent so it lands in their queue.
+  // ---- Guest sign-ups (Zoho Leads) ------------------------------------------
+
+  async createSignupLead(g) {
+    const { leadSource, leadOwnerId, criteriaField } = this.crm.signup;
+    const details = await this.api.createRecord(this.crm.leadsModule, {
+      First_Name: g.firstName || undefined,
+      Last_Name: g.lastName,
+      Email: g.email,
+      Phone: g.phone || undefined,
+      Lead_Source: leadSource,
+      Lead_Status: this.crm.referral.newStatus,
+      Description: g.description,
+      [criteriaField]: g.criteria || undefined,
+      ...(leadOwnerId ? { Owner: { id: leadOwnerId } } : {}),
+    });
+    return { id: String(details.id) };
+  }
+
+  async updateLeadCriteria(leadId, criteria) {
+    await this.api.updateRecord(this.crm.leadsModule, leadId, { [this.crm.signup.criteriaField]: criteria });
+  }
+
   // ---- Referral program (Zoho Leads) ----------------------------------------
 
   get referralColumns() {

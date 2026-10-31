@@ -61,7 +61,8 @@ async function createPortalTools({ crm, contactId, config, now = () => Date.now(
     if (!memo.has(key)) memo.set(key, fn().catch((err) => { memo.delete(key); throw err; }));
     return memo.get(key);
   };
-  const myDeals = () => once('deals', () => crm.listDeals(contactId));
+  // Guests have no Contact, so no deals.
+  const myDeals = () => (contactId ? once('deals', () => crm.listDeals(contactId)) : Promise.resolve([]));
   const stages = () => once('stages', () => crm.getStages());
 
   // What the model has actually been shown, so its answer can be checked against it.

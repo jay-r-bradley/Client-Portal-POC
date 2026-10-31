@@ -33,7 +33,7 @@ function createApp({ config, crm, userStore, activity, ai = null, integrations =
   });
   app.use('/api/auth', authRoutes({ config, crm, userStore, activity }));
   app.use('/api/admin', adminRoutes({ config, crm, userStore, activity, ai, integrations }));
-  app.use('/api/ai', aiRoutes({ config, ai, userStore, activity }));
+  app.use('/api/ai', aiRoutes({ config, ai, crm, userStore, activity }));
   app.use('/api', portalRoutes({ config, crm, userStore, activity }));
   app.use('/api', (req, res, next) => next(new HttpError(404, 'Not found.')));
 

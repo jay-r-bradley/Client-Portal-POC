@@ -2,6 +2,9 @@ const express = require('express');
 const { verifyPassword } = require('../auth/passwords');
 const { COOKIE_NAME, parseCookies, readSessionToken, createSessionToken, sessionCookie, clearSessionCookie } = require('../auth/session');
 const { HttpError, requireAuth, allowPendingPasswordChange, LoginThrottle } = require('../middleware');
+const { normalizeSignup, signupDescription, SignupError } = require('../guests/guests');
+
+const MAX_SIGNUPS_PER_IP_PER_HOUR = 5;
 
 // Compared against when the email is unknown, so response time does not reveal
 // which emails have portal accounts.
@@ -62,6 +65,50 @@ function authRoutes({ config, crm, userStore, activity }) {
     activity.record({ actor: user, action: 'auth.login', req });
     issueSession(res, user);
     res.json({ user: { name, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword } });
+  });
+
+  // Self sign-up: creates a guest account and a Lead in Zoho CRM. Accounts are
+  // accepted immediately. A guest is never linked to an existing Zoho Contact
+  // here (emails are not verified yet); an admin converts them to a client.
+  const signupsByIp = new Map();
+  router.post('/signup', async (req, res) => {
+    const hourAgo = Date.now() - 3600 * 1000;
+    const recent = (signupsByIp.get(req.ip) || []).filter((t) => t > hourAgo);
+    if (recent.length >= MAX_SIGNUPS_PER_IP_PER_HOUR) throw new HttpError(429, 'Too many sign-ups from this network. Please try again later.');
+
+    let guest;
+    try {
+      guest = normalizeSignup(req.body || {});
+    } catch (err) {
+      if (err instanceof SignupError) throw new HttpError(400, err.message);
+      throw err;
+    }
+    const password = req.body?.password;
+    validateNewPassword(password, { email: guest.email });
+    if (userStore.findByEmail(guest.email)) throw new HttpError(409, 'An account with this email already exists. Please sign in instead.');
+
+    let lead;
+    try {
+      lead = await crm.createSignupLead({ ...guest, description: signupDescription(guest, config) });
+    } catch (err) {
+      console.error('Sign-up Lead could not be created in Zoho:', err.message);
+      throw new HttpError(502, 'We could not create your account right now. Please try again shortly.');
+    }
+
+    const user = await userStore.upsert({ email: guest.email, password, name: guest.name, phone: guest.phone, role: 'guest', leadId: lead.id });
+    signupsByIp.set(req.ip, [...recent, Date.now()]);
+    userStore.update(user.id, { lastLoginAt: new Date().toISOString() });
+    activity.record({
+      actor: user, action: 'auth.signed_up', req,
+      target: { leadId: lead.id },
+      details: { listingType: guest.listingType, budgetMax: guest.budgetMax, location: guest.location },
+    });
+    issueSession(res, user);
+    res.status(201).json({
+      user: { name: user.name, email: user.email, role: 'guest' },
+      // The sign-up answers seed the guest's first property search.
+      initialFilters: { budgetMax: guest.budgetMax, locations: guest.location ? [guest.location] : [], listingType: guest.listingType },
+    });
   });
 
   router.post('/logout', (req, res) => {

@@ -134,6 +134,15 @@ class ZohoApi {
     return result.details;
   }
 
+  async updateRecord(module, id, record) {
+    const res = await this.request('PUT', `/${module}/${encodeURIComponent(id)}`, { body: { data: [record] } });
+    const result = res?.data?.[0];
+    if (result?.status !== 'success') {
+      throw new ZohoApiError(result?.message || `Failed to update ${module} record`, { code: result?.code, details: result?.details });
+    }
+    return result.details;
+  }
+
   async getUser(id) {
     const res = await this.request('GET', `/users/${encodeURIComponent(id)}`);
     return res?.users?.[0] || null;

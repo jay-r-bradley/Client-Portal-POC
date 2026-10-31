@@ -91,6 +91,17 @@ class MockCrm {
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }
 
+  async createSignupLead(g) {
+    const lead = { id: `mock-lead-${this.nextId++}`, ...g, source: this.crm.signup.leadSource, createdAt: new Date().toISOString() };
+    this.data.leads.push(lead);
+    return { id: lead.id };
+  }
+
+  async updateLeadCriteria(leadId, criteria) {
+    const lead = this.data.leads.find((l) => l.id === leadId);
+    if (lead) lead.criteria = criteria;
+  }
+
   toReferral(r) {
     const referrer = this.data.contacts[r.referrerId];
     return {

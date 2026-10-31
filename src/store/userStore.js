@@ -1,6 +1,7 @@
-// Portal login accounts. Two roles:
-//   admin  - brokerage staff: manage client access, see all activity
-//   client - a buyer/tenant, linked to their Contact record in Zoho CRM
+// Portal login accounts. Three roles:
+//   admin  - brokerage staff: manage access, see all activity
+//   client - a buyer/tenant with an active deal, linked to their Zoho Contact
+//   guest  - signed up on their own; a Zoho Lead who can browse and match properties
 // Stored as a JSON file for the POC; swap for a database before production.
 
 const fs = require('node:fs');
@@ -8,7 +9,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { hashPassword } = require('../auth/passwords');
 
-const ROLES = ['admin', 'client'];
+const ROLES = ['admin', 'client', 'guest'];
 
 class UserStore {
   constructor(filePath) {
@@ -42,7 +43,7 @@ class UserStore {
   }
 
   // Creates or replaces an account (used by seeding and the create-user script).
-  async upsert({ email, password, contactId = null, name, role = 'client', mustChangePassword = false, createdBy = null }) {
+  async upsert({ email, password, contactId = null, name, role = 'client', mustChangePassword = false, createdBy = null, leadId = null, phone = null }) {
     if (!ROLES.includes(role)) throw new Error(`Unknown role: ${role}`);
     if (role === 'client' && !contactId) throw new Error('A client account must be linked to a Zoho Contact.');
     const normalized = String(email).trim().toLowerCase();
@@ -61,6 +62,8 @@ class UserStore {
         role,
         mustChangePassword,
         createdBy,
+        leadId,
+        phone,
         createdAt: new Date().toISOString(),
       }));
     }
