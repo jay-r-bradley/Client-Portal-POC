@@ -11,25 +11,30 @@ const contacts = {
   c2: { id: 'c2', name: 'Priya Shah', firstName: 'Priya', email: 'priya@client.example', phone: '+1 214 555 0199', ownerId: 'u2' },
 };
 
+// [id, name, address, city, price, type, listing, beds, baths, sq ft, description, listedDate, featured, status]
 const properties = [
-  ['p1', 'Lakeview Modern Townhouse', '1820 Lakeshore Dr', 'Austin', 485000, 'Townhouse', 'Sale', 3, 2.5, 1850, 'Bright end-unit townhouse with lake views, rooftop terrace and two-car garage.'],
-  ['p2', 'Downtown Loft 12B', '400 Congress Ave #12B', 'Austin', 389000, 'Condo', 'Sale', 1, 1, 920, 'Industrial-style loft with floor-to-ceiling windows, walking distance to everything.'],
-  ['p3', 'Hill Country Family Home', '77 Live Oak Ln', 'Austin', 725000, 'Single Family', 'Sale', 4, 3, 2900, 'Spacious family home on a half-acre lot with pool and mature oak trees.'],
-  ['p4', 'East Side Bungalow', '1105 Chicon St', 'Austin', 2950, 'Single Family', 'Rent', 2, 1, 1100, 'Renovated bungalow with a big backyard, pet friendly.'],
-  ['p5', 'Uptown Skyline Condo', '2500 McKinney Ave #1804', 'Dallas', 615000, 'Condo', 'Sale', 2, 2, 1400, 'High-floor condo with skyline views, concierge, pool and gym.'],
-  ['p6', 'Lakewood Craftsman', '6420 Lakewood Blvd', 'Dallas', 849000, 'Single Family', 'Sale', 4, 3.5, 3200, 'Classic craftsman near White Rock Lake, fully updated kitchen.'],
-  ['p7', 'Bishop Arts Studio', '410 N Bishop Ave #3', 'Dallas', 1650, 'Condo', 'Rent', 0, 1, 550, 'Cozy studio above shops and cafes in the Bishop Arts District.'],
-  ['p8', 'Plano Starter Home', '3309 Parkhaven Dr', 'Plano', 365000, 'Single Family', 'Sale', 3, 2, 1650, 'Move-in ready home in a top-rated school district.'],
-  ['p9', 'Heights Victorian', '1123 Heights Blvd', 'Houston', 699000, 'Single Family', 'Sale', 3, 2.5, 2400, 'Restored Victorian with wraparound porch on the Heights boulevard.'],
-  ['p10', 'Midtown Garden Apartment', '3100 Smith St #210', 'Houston', 2100, 'Apartment', 'Rent', 2, 2, 1050, 'Garden-level apartment with private patio, close to light rail.'],
-  ['p11', 'Galleria Luxury Penthouse', '5000 Westheimer Rd PH2', 'Houston', 1450000, 'Condo', 'Sale', 3, 3.5, 3100, 'Penthouse with private elevator, chef kitchen and panoramic views.'],
-  ['p12', 'Pearl District Duplex', '215 Karnes St', 'San Antonio', 540000, 'Multi-Family', 'Sale', 4, 4, 2600, 'Income-producing duplex near the Pearl, both units leased.'],
-  ['p13', 'Alamo Heights Cottage', '118 Montclair St', 'San Antonio', 459000, 'Single Family', 'Sale', 2, 2, 1450, 'Charming cottage with updated systems on a tree-lined street.'],
-  ['p14', 'Round Rock Commercial Suite', '901 S Mays St Ste 200', 'Round Rock', 4800, 'Commercial', 'Rent', 0, 2, 2200, 'Second-floor office suite with reception, four offices and conference room.'],
-  ['p15', 'Zilker Park Townhome', '2208 Barton Hills Dr', 'Austin', 599000, 'Townhouse', 'Sale', 3, 2.5, 1720, 'Walk to Zilker Park and Barton Springs; private courtyard.'],
-  ['p16', 'Sold: Cedar Park Ranch', '45 Brushy Creek Rd', 'Cedar Park', 520000, 'Single Family', 'Sale', 4, 2, 2300, 'Ranch-style home on a large lot.', 'Sold'],
-].map(([id, name, address, city, price, propertyType, listingType, bedrooms, bathrooms, floorArea, description, status = 'Available']) => ({
-  id, name, address, city, price, propertyType, listingType, bedrooms, bathrooms, floorArea, description, status, photoUrl: null,
+  ['p1', 'Lakeview Modern Townhouse', '1820 Lakeshore Dr', 'Austin', 485000, 'Townhouse', 'Sale', 3, 2.5, 1850, 'Bright end-unit townhouse with lake views, rooftop terrace and two-car garage.', '2026-08-14'],
+  ['p2', 'Downtown Loft 12B', '400 Congress Ave #12B', 'Austin', 389000, 'Condo', 'Sale', 1, 1, 920, 'Industrial-style loft with floor-to-ceiling windows, walking distance to everything.', '2026-07-02'],
+  ['p3', 'Hill Country Family Home', '77 Live Oak Ln', 'Austin', 725000, 'Single Family', 'Sale', 4, 3, 2900, 'Spacious family home on a half-acre lot with pool and mature oak trees.', '2026-09-03', true],
+  ['p4', 'East Side Bungalow', '1105 Chicon St', 'Austin', 2950, 'Single Family', 'Rent', 2, 1, 1100, 'Renovated bungalow with a big backyard, pet friendly.', '2026-02-10'],
+  ['p5', 'Uptown Skyline Condo', '2500 McKinney Ave #1804', 'Dallas', 615000, 'Condo', 'Sale', 2, 2, 1400, 'High-floor condo with skyline views, concierge, pool and gym.', '2026-06-21'],
+  ['p6', 'Lakewood Craftsman', '6420 Lakewood Blvd', 'Dallas', 849000, 'Single Family', 'Sale', 4, 3.5, 3200, 'Classic craftsman near White Rock Lake, fully updated kitchen.', '2026-09-18', true],
+  ['p7', 'Bishop Arts Studio', '410 N Bishop Ave #3', 'Dallas', 1650, 'Condo', 'Rent', 0, 1, 550, 'Cozy studio above shops and cafes in the Bishop Arts District.', '2026-08-30'],
+  ['p8', 'Plano Starter Home', '3309 Parkhaven Dr', 'Plano', 365000, 'Single Family', 'Sale', 3, 2, 1650, 'Move-in ready home in a top-rated school district.', '2026-07-25'],
+  ['p9', 'Heights Victorian', '1123 Heights Blvd', 'Houston', 699000, 'Single Family', 'Sale', 3, 2.5, 2400, 'Restored Victorian with wraparound porch on the Heights boulevard.', '2026-05-12'],
+  ['p10', 'Midtown Garden Apartment', '3100 Smith St #210', 'Houston', 2100, 'Apartment', 'Rent', 2, 2, 1050, 'Garden-level apartment with private patio, close to light rail.', '2026-09-27'],
+  ['p11', 'Galleria Luxury Penthouse', '5000 Westheimer Rd PH2', 'Houston', 1450000, 'Condo', 'Sale', 3, 3.5, 3100, 'Penthouse with private elevator, chef kitchen and panoramic views.', '2026-10-05', true],
+  ['p12', 'Pearl District Duplex', '215 Karnes St', 'San Antonio', 540000, 'Multi-Family', 'Sale', 4, 4, 2600, 'Income-producing duplex near the Pearl, both units leased.', '2026-04-08'],
+  ['p13', 'Alamo Heights Cottage', '118 Montclair St', 'San Antonio', 459000, 'Single Family', 'Sale', 2, 2, 1450, 'Charming cottage with updated systems on a tree-lined street.', '2026-08-02'],
+  ['p14', 'Round Rock Commercial Suite', '901 S Mays St Ste 200', 'Round Rock', 4800, 'Commercial', 'Rent', 0, 2, 2200, 'Second-floor office suite with reception, four offices and conference room.', '2026-06-01'],
+  ['p15', 'Zilker Park Townhome', '2208 Barton Hills Dr', 'Austin', 599000, 'Townhouse', 'Sale', 3, 2.5, 1720, 'Walk to Zilker Park and Barton Springs; private courtyard.', '2026-09-22'],
+  ['p16', 'Sold: Cedar Park Ranch', '45 Brushy Creek Rd', 'Cedar Park', 520000, 'Single Family', 'Sale', 4, 2, 2300, 'Ranch-style home on a large lot.', '2026-03-15', false, 'Sold'],
+  // Newly acquired, featured listings
+  ['p17', 'Barton Creek Estate', '3 Rocky Ridge Trl', 'Austin', 1195000, 'Single Family', 'Sale', 5, 4.5, 4200, 'Gated estate on 1.2 acres with a pool, guest casita and Hill Country views.', '2026-10-27', true],
+  ['p18', 'Mueller Park Rowhome', '1915 Aldrich St', 'Austin', 545000, 'Townhouse', 'Sale', 3, 2.5, 1780, 'New-build rowhome facing Lake Park, with a rooftop deck and a ground-floor flex room that works as a home office.', '2026-10-22', true],
+  ['p19', 'Deep Ellum Lofts #508', '2700 Elm St #508', 'Dallas', 3200, 'Condo', 'Rent', 2, 2, 1250, 'Corner loft with exposed brick, two balconies and rooftop pool access.', '2026-10-18', true],
+].map(([id, name, address, city, price, propertyType, listingType, bedrooms, bathrooms, floorArea, description, listedDate, featured = false, status = 'Available']) => ({
+  id, name, address, city, price, propertyType, listingType, bedrooms, bathrooms, floorArea, description, status, photoUrl: null, featured, listedDate,
 }));
 
 const deals = [

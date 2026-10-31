@@ -134,3 +134,11 @@ test('ZohoApi treats 204 No Content as an empty result', async () => {
   const api = new ZohoApi({ ...config.zoho, clientId: 'id', clientSecret: 's', refreshToken: 'r', fetchImpl });
   assert.deepEqual(await api.coql('select id from Properties where id is not null'), []);
 });
+
+test('featured query filters on the checkbox and orders by listing date', () => {
+  const { buildFeaturedQuery } = require('../src/zoho/mappers');
+  const q = buildFeaturedQuery({ module: 'Properties', fields: config.crm.property, availableStatus: 'Available', featuredOnly: true, limit: 6 });
+  assert.match(q, /where \(Status = 'Available' and Featured = true\) order by Listed_Date desc limit 6$/);
+  const newest = buildFeaturedQuery({ module: 'Properties', fields: config.crm.property, availableStatus: 'Available', featuredOnly: false, limit: 6 });
+  assert.match(newest, /where Status = 'Available' order by Listed_Date desc limit 6$/);
+});

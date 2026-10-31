@@ -66,6 +66,8 @@ function mapProperty(record, f) {
     status: record[f.status] || null,
     description: record[f.description] || null,
     photoUrl: record[f.photoUrl] || null,
+    featured: record[f.featured] === true || record[f.featured] === 'true',
+    listedDate: record[f.listedDate] || null,
   };
 }
 
@@ -102,4 +104,13 @@ function buildPropertyQuery(criteria, { module, fields: f, availableStatus, limi
   return `select ${columns} from ${module} where ${combine(conditions, 'and')} order by ${sortField} ${sort.direction} limit ${limit}`;
 }
 
-module.exports = { mapContact, mapDeal, mapProperty, mapUser, buildPropertyQuery, quote, combine };
+// Featured listings, newest first. Without `featuredOnly` it simply returns the
+// newest available listings (the fallback when nothing is flagged yet).
+function buildFeaturedQuery({ module, fields: f, availableStatus, featuredOnly, limit }) {
+  const available = `${f.status} = ${quote(availableStatus)}`;
+  const where = featuredOnly ? `(${available} and ${f.featured} = true)` : available;
+  const columns = [...new Set(Object.values(f))].join(', ');
+  return `select ${columns} from ${module} where ${where} order by ${f.listedDate} desc limit ${Number(limit)}`;
+}
+
+module.exports = { buildFeaturedQuery, mapContact, mapDeal, mapProperty, mapUser, buildPropertyQuery, quote, combine };

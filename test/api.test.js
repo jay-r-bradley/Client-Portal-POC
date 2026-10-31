@@ -72,7 +72,7 @@ test('property search matches budget, locations and bedrooms', async () => {
     body: { budgetMax: 600000, preferredLocation: 'austin', otherLocations: 'Dallas', minBedrooms: 2, listingType: 'Sale' },
   });
   assert.equal(status, 200);
-  assert.deepEqual(body.properties.map((p) => p.id), ['p1', 'p15']);
+  assert.deepEqual(body.properties.map((p) => p.id), ['p1', 'p18', 'p15']);
 });
 
 test('search never returns off-market listings', async () => {
@@ -136,4 +136,13 @@ test('repeated failed sign-ins are throttled', async () => {
   const attempt = () => call('/auth/login', { method: 'POST', body: { email: 'priya@client.example', password: 'wrong' } });
   for (let i = 0; i < 10; i++) assert.equal((await attempt()).status, 401);
   assert.equal((await attempt()).status, 429);
+});
+
+test('featured listings show newly acquired, flagged properties, newest first', async () => {
+  const cookie = await login();
+  const { status, body } = await call('/properties/featured?limit=3', { cookie });
+  assert.equal(status, 200);
+  assert.deepEqual(body.properties.map((p) => p.id), ['p17', 'p18', 'p19']);
+  assert.ok(body.properties.every((p) => p.featured && p.status === 'Available'));
+  assert.equal((await call('/properties/featured')).status, 401);
 });

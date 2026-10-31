@@ -96,6 +96,10 @@ const config = {
       status: env.CRM_PROPERTY_STATUS_FIELD || 'Status',
       description: env.CRM_PROPERTY_DESCRIPTION_FIELD || 'Description',
       photoUrl: env.CRM_PROPERTY_PHOTO_FIELD || 'Photo_URL',
+      // Checkbox the brokerage ticks to showcase a listing in the portal.
+      featured: env.CRM_PROPERTY_FEATURED_FIELD || 'Featured',
+      // Date the brokerage acquired / listed the property; drives "New" badges and ordering.
+      listedDate: env.CRM_PROPERTY_LISTED_DATE_FIELD || 'Listed_Date',
     },
 
     // Value of the property status field that means "can be offered to clients".

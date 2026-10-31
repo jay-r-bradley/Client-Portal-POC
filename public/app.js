@@ -158,11 +158,32 @@ function agentCard(agent, { withButton = true } = {}) {
   </div>`;
 }
 
+const ICONS = {
+  house: new Raw('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9v12h14V9"/><path d="M10 21v-6h4v6"/></svg>'),
+  building: new Raw('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M11 21v-3h2v3"/></svg>'),
+};
+const NEW_LISTING_DAYS = 30;
+
+function isNewListing(p) {
+  if (!p.listedDate) return false;
+  const age = (Date.now() - new Date(p.listedDate)) / 86400000;
+  return age >= 0 && age <= NEW_LISTING_DAYS;
+}
+
 function propertyPhoto(property, extraClass = '') {
   const url = safeImageUrl(property.photoUrl);
+  const multiUnit = /condo|apartment|commercial|multi/i.test(property.propertyType || '');
   return html`<div class="property-photo ${extraClass}">
-    ${url ? html`<img src="${url}" alt="" loading="lazy">` : property.propertyType || 'Property'}
-    ${property.listingType ? html`<span class="badge">For ${property.listingType}</span>` : ''}
+    ${url
+      ? html`<img src="${url}" alt="" loading="lazy">`
+      : html`<div class="photo-placeholder">${multiUnit ? ICONS.building : ICONS.house}<span>${property.city || property.propertyType || ''}</span></div>`}
+    <div class="photo-badges">
+      ${property.listingType ? html`<span class="badge badge-light">For ${property.listingType.toLowerCase()}</span>` : ''}
+      <span class="photo-badges-end">
+        ${property.featured ? html`<span class="badge badge-featured">Featured</span>` : ''}
+        ${isNewListing(property) ? html`<span class="badge badge-new">New</span>` : ''}
+      </span>
+    </div>
   </div>`;
 }
 
@@ -187,6 +208,7 @@ function propertyCard(p, match = null) {
       <h3>${p.name}</h3>
       <div class="muted small">${[p.address, p.city].filter(Boolean).join(', ')}</div>
       ${propertySpecs(p)}
+      ${p.listedDate ? html`<div class="listed-date">Listed ${formatDate(p.listedDate)}</div>` : ''}
       ${match?.reason ? html`<div class="ai-reason">
         <span class="badge badge-ai">${match.score}% match</span>
         <span>${match.reason}</span>
@@ -310,7 +332,22 @@ async function dashboardView() {
           : html`<div class="card empty"><p>You don't have any deals yet.</p><a class="btn" href="#/search">Start a property search</a></div>`}
       </section>
       <aside>${agentCard(state.me?.agent)}</aside>
-    </div>`);
+    </div>
+
+    <section class="section" id="showcase" hidden>
+      <div class="section-head">
+        <div><h2>New to our portfolio</h2><p class="muted small">Featured properties we've recently acquired.</p></div>
+        <a href="#/search">Browse all listings →</a>
+      </div>
+      <div class="grid grid-cards" id="showcase-grid"></div>
+    </section>`);
+
+  api('/properties/featured?limit=3').then(({ properties }) => {
+    const section = document.getElementById('showcase');
+    if (!section || !properties.length) return;
+    document.getElementById('showcase-grid').innerHTML = String(html`${properties.map((p) => propertyCard(p))}`);
+    section.hidden = false;
+  }).catch(() => {});
 
   fillAiPanel('ai-overview', '/ai/insights', (insight) => html`
     <p>${insight.overview}</p>
@@ -374,174 +411,387 @@ async function dealView(id) {
     ${AI_DISCLAIMER}`);
 }
 
-const SEARCH_KEY = 'portal.lastSearch';
+// ---------------------------------------------------------------------------
+// Property search: one search bar (AI-powered when enabled) plus a filter bar.
+// The AI fills the same filters a client can set by hand, so there is a single
+// set of criteria and the client can always see and adjust what was searched.
+// ---------------------------------------------------------------------------
+
+const SEARCH_KEY = 'portal.search.v2';
+const EMPTY_FILTERS = {
+  budgetMin: null, budgetMax: null, locations: [], listingType: null, propertyType: null,
+  minBedrooms: null, minBathrooms: null, minFloorArea: null, keywords: null,
+};
+const SORTS = {
+  best: { label: 'Best match' },
+  price_asc: { label: 'Price: low to high', key: 'price', dir: 1 },
+  price_desc: { label: 'Price: high to low', key: 'price', dir: -1 },
+  newest: { label: 'Newest listings', key: 'listedDate', dir: -1 },
+  bedrooms_desc: { label: 'Most bedrooms', key: 'bedrooms', dir: -1 },
+  area_desc: { label: 'Largest floor area', key: 'floorArea', dir: -1 },
+};
+const LISTING_LABELS = { Sale: 'Buy', Rent: 'Rent' };
+
+const search = {
+  query: '',
+  filters: { ...EMPTY_FILTERS },
+  sort: 'price_asc',
+  options: { propertyTypes: [], listingTypes: [] },
+  items: null, // [{ property, score, reason }] or null before the first search
+  ai: null, // AI interpretation for the current results, if they came from AI search
+  note: null,
+  chips: [],
+};
 
 function loadSavedSearch() {
   try {
-    return JSON.parse(sessionStorage.getItem(SEARCH_KEY) || 'null');
+    const saved = JSON.parse(sessionStorage.getItem(SEARCH_KEY) || 'null');
+    return saved && typeof saved === 'object' ? saved : null;
   } catch {
     return null;
   }
 }
 
-function saveSearch(criteria) {
+function saveSearch() {
   try {
-    sessionStorage.setItem(SEARCH_KEY, JSON.stringify(criteria));
+    sessionStorage.setItem(SEARCH_KEY, JSON.stringify({ query: search.query, filters: search.filters, sort: search.sort }));
   } catch {
     // Storage unavailable (private mode): the search still works, it just isn't remembered.
   }
 }
 
-async function searchView() {
-  const options = await api('/properties/options');
-  const saved = loadSavedSearch() || {};
-  const val = (key) => saved[key] ?? '';
-  const select = (name, label, values, anyLabel) => html`<label>${label}
-    <select name="${name}">
-      <option value="">${anyLabel}</option>
-      ${values.map((v) => html`<option value="${v}" ${saved[name] === v ? new Raw('selected') : ''}>${v}</option>`)}
-    </select></label>`;
-
-  render(html`
-    <div class="page-head">
-      <div>
-        <h1>Find a property</h1>
-        <p class="muted">Tell us your budget, preferred locations and must-haves. We'll match them against our available listings.</p>
-      </div>
-    </div>
-    ${state.config.aiEnabled ? html`<form class="card ai-card ai-search" id="ai-search-form">
-      <div class="ai-label">AI search</div>
-      <label for="ai-query"><span class="ai-search-title">Describe your ideal property in your own words</span></label>
-      <textarea id="ai-query" name="query" rows="2" maxlength="500" required
-        placeholder="e.g. A 3-bedroom family home in Austin or Dallas under $650k, ideally with a pool and room for a home office"></textarea>
-      <div class="actions"><button class="btn" type="submit">Search with AI</button></div>
-    </form>` : ''}
-    <div class="layout-search">
-      <form class="card form" id="search-form" novalidate>
-        <h2>Your criteria</h2>
-        <div id="search-error"></div>
-        <div class="form-row">
-          <label>Min budget<input type="number" name="budgetMin" min="0" step="1000" inputmode="numeric" value="${val('budgetMin')}"></label>
-          <label>Max budget<input type="number" name="budgetMax" min="0" step="1000" inputmode="numeric" value="${val('budgetMax')}"></label>
-        </div>
-        <label>Preferred location<input type="text" name="preferredLocation" placeholder="e.g. Austin" value="${val('preferredLocation')}"></label>
-        <label>Other locations <span class="hint muted">Comma-separated</span>
-          <input type="text" name="otherLocations" placeholder="e.g. Dallas, Plano" value="${val('otherLocations')}"></label>
-        ${select('listingType', 'Buy or rent', options.listingTypes, 'Either')}
-        ${select('propertyType', 'Property type', options.propertyTypes, 'Any type')}
-        <div class="form-row">
-          <label>Min bedrooms<input type="number" name="minBedrooms" min="0" value="${val('minBedrooms')}"></label>
-          <label>Min bathrooms<input type="number" name="minBathrooms" min="0" step="0.5" value="${val('minBathrooms')}"></label>
-        </div>
-        <label>Min floor area (sq ft)<input type="number" name="minFloorArea" min="0" step="50" value="${val('minFloorArea')}"></label>
-        <label>Other requirements <span class="hint muted">Keywords, e.g. pool garage</span>
-          <input type="text" name="keywords" value="${val('keywords')}"></label>
-        <label>Sort by
-          <select name="sort">
-            ${[['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low'], ['bedrooms_desc', 'Most bedrooms'], ['area_desc', 'Largest floor area']]
-              .map(([v, l]) => html`<option value="${v}" ${saved.sort === v ? new Raw('selected') : ''}>${l}</option>`)}
-          </select></label>
-        <div class="actions">
-          <button class="btn" type="submit">Search properties</button>
-          <button class="btn btn-ghost" type="reset" id="search-reset">Clear</button>
-        </div>
-      </form>
-      <section id="results">
-        <div class="card empty"><p>Fill in your criteria and press <strong>Search properties</strong> to see matching listings.</p></div>
-      </section>
-    </div>`);
-
-  const form = document.getElementById('search-form');
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    runSearch(formData(form));
-  });
-  document.getElementById('search-reset').addEventListener('click', () => {
-    saveSearch(null);
-    setTimeout(() => form.querySelectorAll('input').forEach((input) => { input.value = ''; }));
-  });
-  document.getElementById('ai-search-form')?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    runAiSearch(event.target.query.value);
-  });
-  if (Object.keys(saved).length) runSearch(saved);
-}
-
-async function runSearch(criteria) {
-  const results = document.getElementById('results');
-  const errorBox = document.getElementById('search-error');
-  const button = document.querySelector('#search-form button[type=submit]');
-  errorBox.innerHTML = '';
-  setBusy(button, true, 'Searching…');
-  results.innerHTML = String(html`<div class="loading">Searching available listings…</div>`);
+function clearSavedSearch() {
   try {
-    const data = await api('/properties/search', { method: 'POST', body: criteria });
-    saveSearch(criteria);
-    results.innerHTML = String(data.count
-      ? html`<div class="section-head"><h2>${data.count} matching ${data.count === 1 ? 'property' : 'properties'}</h2></div>
-             <div class="grid grid-cards">${data.properties.map(propertyCard)}</div>`
-      : html`<div class="card empty">
-          <p><strong>No available properties match all of your criteria.</strong></p>
-          <p>Try widening your budget or adding more locations, or let your agent know what you're looking for.</p>
-          <a class="btn" href="#/messages?search=1">Ask my agent to find one</a>
-        </div>`);
-  } catch (err) {
-    errorBox.innerHTML = String(alertBox('error', err.message));
-    results.innerHTML = '';
-  } finally {
-    setBusy(button, false, 'Search properties');
+    sessionStorage.removeItem(SEARCH_KEY);
+  } catch {
+    // ignore
   }
 }
 
-// Puts the criteria the AI understood into the form, so the client can see
-// exactly what was searched and fine-tune it by hand.
-function fillSearchForm(criteria) {
-  if (!criteria) return;
-  const form = document.getElementById('search-form');
-  const values = {
-    budgetMin: criteria.budgetMin, budgetMax: criteria.budgetMax,
-    preferredLocation: criteria.locations[0], otherLocations: criteria.locations.slice(1).join(', '),
-    listingType: criteria.listingType, propertyType: criteria.propertyType,
-    minBedrooms: criteria.minBedrooms, minBathrooms: criteria.minBathrooms, minFloorArea: criteria.minFloorArea,
-    keywords: '',
-  };
-  for (const [name, value] of Object.entries(values)) {
-    const field = form.elements[name];
-    if (field) field.value = value ?? '';
+function compactMoney(amount) {
+  return new Intl.NumberFormat(state.config?.locale || 'en-US', {
+    style: 'currency', currency: state.config?.currency || 'USD', notation: 'compact', maximumFractionDigits: 1,
+  }).format(amount);
+}
+
+function priceSummary(f) {
+  if (f.budgetMin !== null && f.budgetMax !== null) return `${compactMoney(f.budgetMin)} – ${compactMoney(f.budgetMax)}`;
+  if (f.budgetMax !== null) return `Up to ${compactMoney(f.budgetMax)}`;
+  if (f.budgetMin !== null) return `From ${compactMoney(f.budgetMin)}`;
+  return null;
+}
+
+function hasFilters(f) {
+  return f.locations.length > 0 || Object.keys(EMPTY_FILTERS).some((k) => k !== 'locations' && f[k] !== null);
+}
+
+// Removable chips describing every active filter.
+function filterChips(f) {
+  const chips = f.locations.map((loc) => ({ label: loc, clear: () => { f.locations = f.locations.filter((l) => l !== loc); } }));
+  const price = priceSummary(f);
+  if (price) chips.push({ label: price, clear: () => { f.budgetMin = null; f.budgetMax = null; } });
+  if (f.listingType) chips.push({ label: f.listingType === 'Rent' ? 'For rent' : `For ${f.listingType.toLowerCase()}`, clear: () => { f.listingType = null; } });
+  if (f.propertyType) chips.push({ label: f.propertyType, clear: () => { f.propertyType = null; } });
+  if (f.minBedrooms !== null) chips.push({ label: `${f.minBedrooms}+ beds`, clear: () => { f.minBedrooms = null; } });
+  if (f.minBathrooms !== null) chips.push({ label: `${f.minBathrooms}+ baths`, clear: () => { f.minBathrooms = null; } });
+  if (f.minFloorArea !== null) chips.push({ label: `${Number(f.minFloorArea).toLocaleString()}+ sq ft`, clear: () => { f.minFloorArea = null; } });
+  if (f.keywords) chips.push({ label: `“${f.keywords}”`, clear: () => { f.keywords = null; } });
+  return chips;
+}
+
+function numberOrNull(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function filterDropdown(name, label, value, body) {
+  return html`<details class="filter ${value ? 'is-active' : ''}" data-filter="${name}">
+    <summary><span class="filter-label">${label}</span>${value ? html`<span class="filter-value">${value}</span>` : ''}</summary>
+    <div class="filter-pop">${body}</div>
+  </details>`;
+}
+
+function optionButtons(attr, options, current) {
+  return html`<div class="option-grid">${options.map(([value, label]) => html`
+    <button type="button" class="option ${String(current ?? '') === String(value) ? 'is-selected' : ''}" data-${new Raw(attr)}="${value}">${label}</button>`)}</div>`;
+}
+
+function renderFilterBar() {
+  const f = search.filters;
+  const { listingTypes, propertyTypes } = search.options;
+  const bar = document.getElementById('filter-bar');
+  bar.innerHTML = String(html`
+    <div class="segmented" role="group" aria-label="Buy or rent">
+      ${[['', 'All'], ...listingTypes.map((t) => [t, LISTING_LABELS[t] || t])].map(([value, label]) => html`
+        <button type="button" data-listing="${value}" aria-pressed="${String((f.listingType || '') === value)}">${label}</button>`)}
+    </div>
+    ${filterDropdown('location', 'Location', f.locations.length ? `${f.locations[0]}${f.locations.length > 1 ? ` +${f.locations.length - 1}` : ''}` : null, html`
+      <label>Cities or areas<input type="text" name="locations" placeholder="e.g. Austin, Dallas" value="${f.locations.join(', ')}"></label>
+      <p class="hint muted">Separate several with commas.</p>
+      <div class="filter-actions"><button type="button" class="btn btn-sm" data-apply="location">Apply</button></div>`)}
+    ${filterDropdown('price', 'Price', priceSummary(f), html`
+      <div class="form-row">
+        <label>Min<input type="number" name="budgetMin" min="0" step="1000" inputmode="numeric" placeholder="No min" value="${f.budgetMin ?? ''}"></label>
+        <label>Max<input type="number" name="budgetMax" min="0" step="1000" inputmode="numeric" placeholder="No max" value="${f.budgetMax ?? ''}"></label>
+      </div>
+      <p class="hint muted">Rental prices are per month.</p>
+      <div class="filter-actions"><button type="button" class="btn btn-sm" data-apply="price">Apply</button></div>`)}
+    ${filterDropdown('beds', 'Beds', f.minBedrooms !== null ? `${f.minBedrooms}+` : null,
+      optionButtons('beds', [['', 'Any'], [1, '1+'], [2, '2+'], [3, '3+'], [4, '4+'], [5, '5+']], f.minBedrooms))}
+    ${filterDropdown('type', 'Home type', f.propertyType,
+      optionButtons('type', [['', 'Any type'], ...propertyTypes.map((t) => [t, t])], f.propertyType))}
+    ${filterDropdown('more', 'More', [f.minBathrooms !== null, f.minFloorArea !== null, Boolean(f.keywords)].filter(Boolean).length || null, html`
+      <label>Bathrooms
+        <select name="minBathrooms">
+          ${[['', 'Any'], [1, '1+'], [1.5, '1.5+'], [2, '2+'], [3, '3+'], [4, '4+']].map(([v, l]) => html`
+            <option value="${v}" ${String(f.minBathrooms ?? '') === String(v) ? new Raw('selected') : ''}>${l}</option>`)}
+        </select></label>
+      <label>Min floor area (sq ft)<input type="number" name="minFloorArea" min="0" step="50" value="${f.minFloorArea ?? ''}"></label>
+      <label>Keywords<input type="text" name="keywords" placeholder="e.g. garage, pool" value="${f.keywords ?? ''}"></label>
+      <div class="filter-actions"><button type="button" class="btn btn-sm" data-apply="more">Apply</button></div>`)}
+  `);
+
+  search.chips = filterChips(f);
+  document.getElementById('active-filters').innerHTML = String(search.chips.length ? html`
+    ${search.chips.map((chip, i) => html`<button type="button" class="filter-chip" data-chip="${i}" aria-label="Remove filter ${chip.label}">
+      ${chip.label}<span aria-hidden="true">×</span></button>`)}
+    <button type="button" class="link-button" data-clear-all>Clear all</button>` : '');
+}
+
+function applyDropdown(name, pop) {
+  const f = search.filters;
+  const value = (field) => pop.querySelector(`[name=${field}]`)?.value;
+  if (name === 'location') {
+    f.locations = [...new Set(value('locations').split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 5);
+  } else if (name === 'price') {
+    f.budgetMin = numberOrNull(value('budgetMin'));
+    f.budgetMax = numberOrNull(value('budgetMax'));
+  } else if (name === 'more') {
+    f.minBathrooms = numberOrNull(value('minBathrooms'));
+    f.minFloorArea = numberOrNull(value('minFloorArea'));
+    f.keywords = value('keywords').trim() || null;
   }
-  saveSearch(formData(form));
+}
+
+function sortedItems() {
+  const sort = SORTS[search.sort];
+  if (!sort?.key) return search.items; // "best": keep the AI ranking
+  return [...search.items].sort((a, b) => {
+    const x = a.property[sort.key];
+    const y = b.property[sort.key];
+    if (x === y) return 0;
+    if (x === null || x === undefined) return 1;
+    if (y === null || y === undefined) return -1;
+    return (x > y ? 1 : -1) * sort.dir;
+  });
+}
+
+function skeletonGrid() {
+  return html`<div class="grid grid-cards" aria-hidden="true">${Array.from({ length: 6 }, () => html`
+    <div class="card property-card skeleton"><div class="property-photo"></div><div class="property-body">
+      <div class="skeleton-line w40"></div><div class="skeleton-line w80"></div><div class="skeleton-line w60"></div></div></div>`)}</div>`;
+}
+
+function renderResults() {
+  const results = document.getElementById('results');
+  if (search.items === null) return showcase(results);
+
+  const count = search.items.length;
+  const sortOptions = Object.entries(SORTS).filter(([key]) => key !== 'best' || search.ai);
+  results.innerHTML = String(html`
+    ${search.ai ? html`<div class="ai-banner">
+      <div class="ai-label">AI search</div>
+      <p>${search.ai.interpretation}</p>
+      ${search.ai.preferences.length ? html`<div class="chips"><span class="muted small">Also looking for:</span>${search.ai.preferences.map((p) => html`<span class="chip">${p}</span>`)}</div>` : ''}
+      ${search.ai.relaxed && count ? html`<div class="alert alert-warning">Nothing matched every requirement, so these are the closest options. Each one notes what it's missing.</div>` : ''}
+      ${search.ai.overview ? html`<p class="muted">${search.ai.overview}</p>` : ''}
+    </div>` : ''}
+    ${search.note ? html`<p class="results-note muted small">${search.note}</p>` : ''}
+    <div class="results-head">
+      <h2>${count} ${search.ai?.relaxed ? 'near ' : ''}${count === 1 ? 'property' : 'properties'}</h2>
+      ${count > 1 ? html`<label class="sort-control">Sort by
+        <select id="sort-select">${sortOptions.map(([key, s]) => html`
+          <option value="${key}" ${search.sort === key ? new Raw('selected') : ''}>${s.label}</option>`)}</select></label>` : ''}
+    </div>
+    ${count
+      ? html`<div class="grid grid-cards">${sortedItems().map((item) => propertyCard(item.property, item.reason ? item : null))}</div>`
+      : html`<div class="card empty">
+          <p><strong>No available properties match these filters.</strong></p>
+          <p>Try removing a filter above, or let your agent know what you're looking for.</p>
+          <a class="btn" href="#/messages?search=1">Ask my agent to find one</a>
+        </div>`}`);
+}
+
+async function showcase(container) {
+  container.innerHTML = String(skeletonGrid());
+  try {
+    const { properties } = await api('/properties/featured?limit=6');
+    if (!container.isConnected || search.items !== null) return;
+    container.innerHTML = String(properties.length ? html`
+      <div class="results-head"><div>
+        <h2>Featured &amp; newly acquired</h2>
+        <p class="muted small">The latest additions to our portfolio. Search above to find your perfect match.</p>
+      </div></div>
+      <div class="grid grid-cards">${properties.map((p) => propertyCard(p))}</div>` : '');
+  } catch {
+    container.innerHTML = '';
+  }
+}
+
+async function runFilteredSearch({ note = null } = {}) {
+  const results = document.getElementById('results');
+  search.ai = null;
+  search.note = note;
+  if (search.sort === 'best') search.sort = 'price_asc';
+  renderFilterBar();
+  saveSearch();
+  if (!hasFilters(search.filters)) {
+    search.items = null;
+    return renderResults();
+  }
+  results.innerHTML = String(skeletonGrid());
+  try {
+    const data = await api('/properties/search', { method: 'POST', body: search.filters });
+    search.items = data.properties.map((property) => ({ property }));
+    renderResults();
+  } catch (err) {
+    results.innerHTML = String(alertBox('error', err.message));
+  }
 }
 
 async function runAiSearch(query) {
   const results = document.getElementById('results');
-  const button = document.querySelector('#ai-search-form button');
-  setBusy(button, true, 'Thinking…');
-  results.innerHTML = String(html`<div class="loading">Reading your request and matching it against available listings…</div>`);
+  const button = document.getElementById('search-submit');
+  setBusy(button, true, 'Searching…');
+  results.innerHTML = String(html`<p class="ai-working"><span class="ai-label">AI search</span> Reading your request and checking our listings…</p>${skeletonGrid()}`);
   try {
     const data = await api('/ai/property-search', { method: 'POST', body: { query } });
-    fillSearchForm(data.criteria);
-    const count = data.results.length;
-    results.innerHTML = String(html`
-      <div class="card ai-card ai-summary">
-        <div class="ai-label">AI search</div>
-        <p>${data.interpretation}</p>
-        ${data.preferences.length ? html`<div class="chips">${data.preferences.map((p) => html`<span class="chip">${p}</span>`)}</div>` : ''}
-        ${data.relaxed && count ? html`<div class="alert alert-warning">Nothing matched every requirement, so here are the closest options. Each one notes what it's missing.</div>` : ''}
-        ${data.overview ? html`<p>${data.overview}</p>` : ''}
-      </div>
-      ${count
-        ? html`<div class="section-head section"><h2>${count} ${data.relaxed ? 'near' : 'matching'} ${count === 1 ? 'property' : 'properties'}, best fit first</h2></div>
-               <div class="grid grid-cards">${data.results.map((r) => propertyCard(r.property, r))}</div>`
-        : html`<div class="card empty section">
-            <p><strong>No available properties came close to that request.</strong></p>
-            <a class="btn" href="#/messages?search=1">Ask my agent to find one</a>
-          </div>`}`);
+    search.filters = { ...EMPTY_FILTERS, ...(data.criteria || {}), keywords: null };
+    search.items = data.results;
+    search.ai = { interpretation: data.interpretation, preferences: data.preferences, overview: data.overview, relaxed: data.relaxed };
+    search.note = null;
+    search.sort = 'best';
+    renderFilterBar();
+    saveSearch();
+    renderResults();
   } catch (err) {
     results.innerHTML = String(alertBox('error', err.message));
   } finally {
-    setBusy(button, false, 'Search with AI');
+    setBusy(button, false, 'Search');
   }
 }
+
+async function searchView() {
+  search.options = await api('/properties/options');
+  const saved = loadSavedSearch();
+  search.query = saved?.query || '';
+  search.filters = { ...EMPTY_FILTERS, ...(saved?.filters || {}) };
+  search.sort = saved?.sort && SORTS[saved.sort] && saved.sort !== 'best' ? saved.sort : 'price_asc';
+  search.items = null;
+  search.ai = null;
+  search.note = null;
+  const aiOn = state.config.aiEnabled;
+
+  render(html`
+    <section class="search-hero">
+      <h1>Find your next property</h1>
+      <p>${aiOn
+        ? 'Describe what you want in your own words, or narrow things down with the filters.'
+        : 'Search by city, then narrow things down with the filters.'}</p>
+      <form class="search-box" id="search-form" role="search">
+        <label class="visually-hidden" for="search-query">${aiOn ? 'Describe the property you are looking for' : 'City or area'}</label>
+        <input id="search-query" name="query" type="search" autocomplete="off" maxlength="500" value="${search.query}"
+          placeholder="${aiOn ? 'e.g. 3-bed family home in Austin or Dallas under $650k, ideally with a pool' : 'City or area, e.g. Austin, Dallas'}">
+        <button class="btn" type="submit" id="search-submit">Search</button>
+      </form>
+      ${aiOn ? html`<p class="search-hint"><span class="ai-dot" aria-hidden="true"></span>AI search understands budgets, locations, bedrooms and wishes like "quiet street" or "home office".</p>` : ''}
+    </section>
+    <div class="filter-toolbar">
+      <div class="filter-bar" id="filter-bar" role="toolbar" aria-label="Search filters"></div>
+      <div class="active-filters" id="active-filters"></div>
+    </div>
+    <section id="results" aria-live="polite"></section>`);
+
+  renderFilterBar();
+  if (hasFilters(search.filters)) runFilteredSearch();
+  else renderResults();
+
+  document.getElementById('search-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const query = event.target.query.value.trim();
+    search.query = query;
+    if (!query) return runFilteredSearch();
+    if (aiOn) return runAiSearch(query);
+    search.filters.locations = [...new Set(query.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 5);
+    runFilteredSearch();
+  });
+
+  const toolbar = document.querySelector('.filter-toolbar');
+  const afterManualChange = () => runFilteredSearch({ note: search.ai ? 'Filters changed, so these are exact matches for your filters rather than the AI ranking.' : null });
+
+  toolbar.addEventListener('click', (event) => {
+    const target = event.target.closest('button');
+    if (!target) return;
+    const f = search.filters;
+    if (target.dataset.listing !== undefined) {
+      f.listingType = target.dataset.listing || null;
+    } else if (target.dataset.beds !== undefined) {
+      f.minBedrooms = numberOrNull(target.dataset.beds);
+    } else if (target.dataset.type !== undefined) {
+      f.propertyType = target.dataset.type || null;
+    } else if (target.dataset.apply) {
+      applyDropdown(target.dataset.apply, target.closest('.filter-pop'));
+    } else if (target.dataset.chip !== undefined) {
+      search.chips[Number(target.dataset.chip)]?.clear();
+    } else if (target.dataset.clearAll !== undefined) {
+      search.filters = { ...EMPTY_FILTERS };
+      search.query = '';
+      document.getElementById('search-query').value = '';
+      clearSavedSearch();
+    } else {
+      return;
+    }
+    afterManualChange();
+  });
+
+  // Enter inside a dropdown applies it.
+  toolbar.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || event.target.tagName !== 'INPUT') return;
+    event.preventDefault();
+    const pop = event.target.closest('.filter-pop');
+    const name = pop?.closest('.filter')?.dataset.filter;
+    if (!name) return;
+    applyDropdown(name, pop);
+    afterManualChange();
+  });
+
+  // Only one dropdown open at a time.
+  toolbar.addEventListener('toggle', (event) => {
+    if (!event.target.open) return;
+    toolbar.querySelectorAll('details.filter[open]').forEach((d) => { if (d !== event.target) d.open = false; });
+    event.target.querySelector('input, select, button.option')?.focus();
+  }, true);
+
+  document.getElementById('results').addEventListener('change', (event) => {
+    if (event.target.id !== 'sort-select') return;
+    search.sort = event.target.value;
+    saveSearch();
+    renderResults();
+  });
+}
+
+// Close filter dropdowns on outside click or Escape.
+document.addEventListener('click', (event) => {
+  document.querySelectorAll('details.filter[open]').forEach((d) => { if (!d.contains(event.target)) d.open = false; });
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  document.querySelectorAll('details.filter[open]').forEach((d) => {
+    d.open = false;
+    d.querySelector('summary').focus();
+  });
+});
 
 async function propertyView(id) {
   const { property: p } = await api(`/properties/${encodeURIComponent(id)}`);
@@ -598,16 +848,17 @@ async function messagesView(params) {
     subject = `Question about ${deal.name}`;
   } else if (params.get('search')) {
     const saved = loadSavedSearch() || {};
-    const locations = [saved.preferredLocation, saved.otherLocations].filter(Boolean).join(', ');
+    const f = { ...EMPTY_FILTERS, ...(saved.filters || {}) };
     subject = 'Help me find a property';
     body = [
       "I couldn't find a match in the portal. Here is what I'm looking for:",
-      saved.budgetMin || saved.budgetMax ? `Budget: ${saved.budgetMin ? money(saved.budgetMin) : 'any'} – ${saved.budgetMax ? money(saved.budgetMax) : 'any'}` : null,
-      locations ? `Locations: ${locations}` : null,
-      saved.listingType ? `Looking to: ${saved.listingType === 'Rent' ? 'rent' : 'buy'}` : null,
-      saved.propertyType ? `Type: ${saved.propertyType}` : null,
-      saved.minBedrooms ? `Bedrooms: ${saved.minBedrooms}+` : null,
-      saved.keywords ? `Other: ${saved.keywords}` : null,
+      saved.query ? `In my words: ${saved.query}` : null,
+      f.budgetMin !== null || f.budgetMax !== null ? `Budget: ${f.budgetMin !== null ? money(f.budgetMin) : 'any'} – ${f.budgetMax !== null ? money(f.budgetMax) : 'any'}` : null,
+      f.locations.length ? `Locations: ${f.locations.join(', ')}` : null,
+      f.listingType ? `Looking to: ${f.listingType === 'Rent' ? 'rent' : 'buy'}` : null,
+      f.propertyType ? `Type: ${f.propertyType}` : null,
+      f.minBedrooms !== null ? `Bedrooms: ${f.minBedrooms}+` : null,
+      f.keywords ? `Other: ${f.keywords}` : null,
     ].filter(Boolean).join('\n');
   }
 
@@ -746,7 +997,7 @@ async function handleRoute() {
 document.getElementById('logout').addEventListener('click', async () => {
   await api('/auth/logout', { method: 'POST', body: {} }).catch(() => {});
   state.me = null;
-  try { sessionStorage.removeItem(SEARCH_KEY); } catch { /* ignore */ }
+  clearSavedSearch();
   navigate('#/login');
 });
 

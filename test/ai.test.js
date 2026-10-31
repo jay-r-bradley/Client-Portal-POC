@@ -128,7 +128,7 @@ test('AI search: the agent searches via tools and results are matched back to CR
   const client = scriptedClient([
     callTools(toolCall('search_listings', searchArgs({ budget_max: 650000, locations: ['Austin'], listing_type: 'Sale', min_bedrooms: 3 }))),
     (req) => {
-      assert.deepEqual(toolResults(req)[0].listings.map((l) => l.id), ['p1', 'p15']);
+      assert.deepEqual(toolResults(req)[0].listings.map((l) => l.id), ['p1', 'p18', 'p15']);
       return answer({
         interpretation: 'A 3-bed home in Austin under $650k.', preferences: ['pool'], relaxed: false, overview: 'Two options.',
         results: [{ id: 'p15', score: 90, reason: 'Near Zilker Park.' }, { id: 'p999', score: 99, reason: 'Invented listing.' }],
@@ -138,7 +138,7 @@ test('AI search: the agent searches via tools and results are matched back to CR
   const ai = new AiService({ client, crm: new MockCrm(config), config: aiConfig });
   const out = await ai.propertySearch('c1', '3 bed in Austin under 650k with a pool');
 
-  assert.deepEqual(out.results.map((r) => r.property.id), ['p15', 'p1']); // ranked, then unranked; invented id dropped
+  assert.deepEqual(out.results.map((r) => r.property.id), ['p15', 'p1', 'p18']); // ranked, then unranked; invented id dropped
   assert.equal(out.results[0].property.price, 599000);
   assert.equal(out.results[1].reason, null);
   assert.equal(out.relaxed, false);

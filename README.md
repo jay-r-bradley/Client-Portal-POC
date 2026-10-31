@@ -3,7 +3,8 @@
 A white-label client portal for real estate brokerages that already manage their deals in **Zoho CRM**. The brokerage's clients sign in and can:
 
 - **Track their deals.** See how many deals they have, where each one is in the pipeline (stage tracker), the amount, target closing date, latest update and the linked property.
-- **Search properties.** Fill in a form with budget range, a preferred location plus other locations, buy or rent, property type, minimum bedrooms, bathrooms and floor area, and free-text requirements. The portal returns the **available** listings from the CRM that match.
+- **Search properties.** One search bar plus a filter bar (Buy/Rent, Location, Price, Beds, Home type, More). With AI on, the client can type what they want in plain English and the AI sets the same filters, so there is one set of criteria they can see and adjust. Active filters show as removable chips, and results can be sorted. Only **available** listings from the CRM are shown.
+- **See featured, newly acquired properties.** A "New to our portfolio" section on the dashboard and a "Featured & newly acquired" showcase on the search page, driven by a Featured checkbox in Zoho. Listings added in the last 30 days get a "New" badge.
 - **Contact their agent.** Message the agent from inside the portal (in general, about a specific deal, or "I'm interested" on a listing). Each message lands in Zoho as a Note on the client's Contact and a high-priority Task for the agent. The agent's replies show up in the portal thread.
 
 - **AI assistant (optional).** Plain-English property search and deal insights, powered by OpenAI and reading Zoho CRM through Zoho MCP. See [AI features](#ai-features-openai--zoho-mcp) below.
@@ -36,10 +37,12 @@ Requires Node.js 20.12 or later.
 |---|---|---|
 | **Contacts** (standard) | The client. Their **Owner** is "your agent". | `Full_Name`, `Email`, `Phone`/`Mobile`, `Owner` |
 | **Deals** (standard) | The client's deals, linked via `Contact_Name` | `Deal_Name`, `Stage`, `Amount`, `Closing_Date`, `Type`, `Description`, `Owner`, plus a `Property` lookup |
-| **Properties** (custom module) | Listings for search | `Name`, `Address`, `City`, `Price`, `Property_Type`, `Listing_Type` (Sale/Rent), `Bedrooms`, `Bathrooms`, `Floor_Area`, `Status`, `Description`, `Photo_URL` |
+| **Properties** (custom module) | Listings for search and the showcase | `Name`, `Address`, `City`, `Price`, `Property_Type`, `Listing_Type` (Sale/Rent), `Bedrooms`, `Bathrooms`, `Floor_Area`, `Status`, `Description`, `Photo_URL`, `Featured` (checkbox), `Listed_Date` (date) |
 | **Notes**, **Tasks** (standard) | Portal messages | written by the portal |
 
 Many real estate orgs already have a listings module under a different name, or different field names. Every module and field API name can be overridden in `.env` (see `.env.example` and `src/config.js`), so there's no need to rename anything in Zoho. Only listings whose `Status` equals `CRM_PROPERTY_AVAILABLE_STATUS` (default `Available`) appear in search. A client can still open an off-market property if they have a deal on it.
+
+**Featuring a property:** tick **Featured** on the listing in Zoho, and it appears in the showcase, newest `Listed_Date` first. If nothing is ticked, the showcase shows the newest available listings instead. Set `Listed_Date` to the acquisition or listing date; listings from the last 30 days get a "New" badge.
 
 Pipeline stages are read live from the Deals **Stage** picklist, in Zoho's order. Set `CRM_WON_STAGES` and `CRM_LOST_STAGES` if your closing stages have different names.
 

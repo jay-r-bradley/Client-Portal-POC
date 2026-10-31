@@ -64,6 +64,13 @@ class MockCrm {
     return { propertyTypes: unique('propertyType'), listingTypes: unique('listingType') };
   }
 
+  async listFeaturedProperties(limit = 6) {
+    const available = this.data.properties.filter((p) => p.status === this.crm.availableStatus);
+    const featured = available.filter((p) => p.featured);
+    const newestFirst = (a, b) => String(b.listedDate || '').localeCompare(String(a.listedDate || ''));
+    return [...(featured.length ? featured : available)].sort(newestFirst).slice(0, limit);
+  }
+
   async getProperty(propertyId) {
     return this.data.properties.find((p) => p.id === propertyId) || null;
   }

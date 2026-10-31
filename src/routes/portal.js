@@ -36,6 +36,11 @@ function portalRoutes({ config, crm }) {
     res.json({ deal, property, stages, wonStages: config.crm.wonStages, lostStages: config.crm.lostStages });
   });
 
+  router.get('/properties/featured', async (req, res) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 6, 1), 12);
+    res.json({ properties: await crm.listFeaturedProperties(limit) });
+  });
+
   router.get('/properties/options', async (req, res) => {
     res.json(await crm.getPropertyFilterOptions());
   });

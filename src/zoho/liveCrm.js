@@ -1,6 +1,6 @@
 // CRM service backed by a real Zoho CRM org.
 
-const { mapContact, mapDeal, mapProperty, mapUser, buildPropertyQuery } = require('./mappers');
+const { mapContact, mapDeal, mapProperty, mapUser, buildPropertyQuery, buildFeaturedQuery } = require('./mappers');
 const { matchesKeywords } = require('../propertyCriteria');
 const { ZohoApi } = require('./zohoApi');
 
@@ -109,6 +109,15 @@ class LiveCrm {
       propertyTypes: picklist(this.crm.property.type),
       listingTypes: picklist(this.crm.property.listingType),
     };
+  }
+
+  async listFeaturedProperties(limit = 6) {
+    const query = (featuredOnly) => buildFeaturedQuery({
+      module: this.crm.propertiesModule, fields: this.crm.property, availableStatus: this.crm.availableStatus, featuredOnly, limit,
+    });
+    let records = await this.api.coql(query(true));
+    if (!records.length) records = await this.api.coql(query(false));
+    return records.map((r) => mapProperty(r, this.crm.property));
   }
 
   async getProperty(propertyId) {
