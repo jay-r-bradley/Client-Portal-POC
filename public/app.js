@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 const app = document.getElementById('app');
-const state = { config: null, me: null };
+const state = { config: null, me: null, notice: null };
 
 class Raw {
   constructor(value) { this.value = value; }
@@ -35,20 +35,37 @@ function render(view) {
   app.innerHTML = String(view);
 }
 
-async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`/api${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin',
-  });
+const PUBLIC_AUTH_PATHS = /^\/auth\/(login|signup|password|otp|me)/;
+
+// Every request has a time limit (longer for AI), so a stalled network never
+// leaves the page hanging.
+async function api(path, { method = 'GET', body, timeoutMs } = {}) {
+  const controller = new AbortController();
+  const limit = timeoutMs || (path.startsWith('/ai/') ? 120000 : 30000);
+  const timer = setTimeout(() => controller.abort(), limit);
+  let res;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw new Error(err.name === 'AbortError'
+      ? 'This is taking longer than expected. Please check your connection and try again.'
+      : 'Could not reach the server. Please check your connection and try again.');
+  } finally {
+    clearTimeout(timer);
+  }
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
-    state.me = null;
-    navigate('#/login');
+  if (res.status === 401 && state.me && !PUBLIC_AUTH_PATHS.test(path)) {
+    signOut('expired');
     throw new Error(data.error || 'Please sign in.');
   }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  idle.lastServerContact = Date.now();
   return data;
 }
 
@@ -258,31 +275,48 @@ function loginView() {
   render(html`<div class="login-wrap">
     <div class="card login-card">
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span>${state.config.brandName}</div>
+      <div id="login-step">
       <h1>Sign in</h1>
       <p class="muted">Track your deals, search properties and talk to your agent.</p>
+      ${state.notice ? alertBox('success', state.notice) : ''}
       <div id="login-error"></div>
       <form class="form" id="login-form">
         <label>Email<input type="email" name="email" autocomplete="username" required></label>
         <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
-        <button class="btn btn-block" type="submit">Sign in</button>
+        <button class="btn btn-block" type="submit">Continue</button>
       </form>
+      <p class="muted small"><a href="#/forgot">Forgot your password?</a></p>
+      </div>
       ${state.config.mode === 'mock' ? html`<p class="muted small">Demo logins: client <strong>alex@client.example</strong> / demo1234 ·
         admin <strong>admin@brokerage.example</strong> / admin1234</p>` : ''}
       <p class="muted small">New here? <a href="#/signup">Create a free account</a> to browse our available properties.</p>
+      <p class="muted small"><a href="#/privacy">Privacy notice</a></p>
     </div>
   </div>`);
+  state.notice = null;
 
+  const finish = async () => {
+    await loadMe();
+    navigate(homeHash());
+  };
   document.getElementById('login-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = event.target.querySelector('button');
-    setBusy(button, true, 'Signing in…');
+    setBusy(button, true, 'Checking…');
     try {
-      await api('/auth/login', { method: 'POST', body: formData(event.target) });
-      await loadMe();
-      navigate(homeHash());
+      const result = await api('/auth/login', { method: 'POST', body: formData(event.target) });
+      if (!result.otpRequired) return finish();
+      showCodeStep(document.getElementById('login-step'), result, {
+        title: 'Check your email',
+        onCancel: () => loginView(),
+        verify: async (challengeId, code) => {
+          await api('/auth/login/verify', { method: 'POST', body: { challengeId, code } });
+          await finish();
+        },
+      });
     } catch (err) {
       document.getElementById('login-error').innerHTML = String(alertBox('error', err.message));
-      setBusy(button, false, 'Sign in');
+      setBusy(button, false, 'Continue');
     }
   });
 }
@@ -1077,7 +1111,7 @@ function signupView() {
           <label>Preferred location <span class="hint muted">Optional</span><input type="text" name="location" maxlength="80" placeholder="e.g. Austin"></label>
         </div>
         <label class="checkbox"><input type="checkbox" name="consent" required>
-          <span>I agree that ${state.config.brandName} may contact me about properties that match what I'm looking for.</span></label>
+          <span>I agree that ${state.config.brandName} may contact me about properties that match what I'm looking for, and I've read the <a href="#/privacy" target="_blank" rel="noopener">privacy notice</a>.</span></label>
         <button class="btn btn-block" type="submit">Create account</button>
       </form>
       <p class="muted small signup-switch">Already have an account? <a href="#/login">Sign in</a></p>
@@ -1091,20 +1125,250 @@ function signupView() {
     const button = form.querySelector('button[type=submit]');
     setBusy(button, true, 'Creating your account…');
     try {
-      const { initialFilters } = await api('/auth/signup', { method: 'POST', body: values });
-      // Start the guest's first search from what they told us.
-      try {
-        sessionStorage.setItem(SEARCH_KEY, JSON.stringify({ query: '', filters: { ...EMPTY_FILTERS, ...initialFilters }, sort: 'price_asc' }));
-      } catch {
-        // Storage unavailable: they start from the showcase instead.
-      }
-      await loadMe();
-      navigate(homeHash());
+      // Nothing is created until the email is confirmed with the code.
+      const challenge = await api('/auth/signup', { method: 'POST', body: values });
+      const card = document.querySelector('.signup-card');
+      showCodeStep(card, challenge, {
+        title: 'Confirm your email',
+        onCancel: () => signupView(),
+        verify: async (challengeId, code) => {
+          const { initialFilters } = await api('/auth/signup/verify', { method: 'POST', body: { challengeId, code } });
+          // Start the guest's first search from what they told us.
+          try {
+            sessionStorage.setItem(SEARCH_KEY, JSON.stringify({ query: '', filters: { ...EMPTY_FILTERS, ...initialFilters }, sort: 'price_asc' }));
+          } catch {
+            // Storage unavailable: they start from the showcase instead.
+          }
+          await loadMe();
+          navigate(homeHash());
+        },
+      });
     } catch (err) {
       document.getElementById('signup-error').innerHTML = String(alertBox('error', err.message));
       setBusy(button, false, 'Create account');
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Sign-in security: emailed one-time codes, password reset, idle sign-out
+// ---------------------------------------------------------------------------
+
+// Shows the "enter the code we emailed you" step inside `container`.
+// `verify(code)` completes the flow; it throws with a message on a wrong code.
+function showCodeStep(container, challenge, { title, verify, onCancel }) {
+  let current = challenge;
+  container.innerHTML = String(html`
+    <h1>${title}</h1>
+    <p class="muted">We emailed a 6-digit code to <strong>${current.sentTo}</strong>. It expires in ${current.expiresInMinutes} minutes.</p>
+    <div id="code-error"></div>
+    <form class="form" id="code-form" novalidate>
+      <label>Verification code
+        <input class="code-input" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus></label>
+      <button class="btn btn-block" type="submit">Verify</button>
+    </form>
+    <p class="muted small code-actions">
+      <button type="button" class="link-button" id="code-resend">Send a new code</button> ·
+      <button type="button" class="link-button" id="code-cancel">Start again</button>
+    </p>
+    <p class="muted small demo-code" id="demo-code" ${current.devCode ? '' : new Raw('hidden')}>Demo mode: your code is <strong>${current.devCode || ''}</strong> (emails are printed to the server log).</p>`);
+
+  const form = container.querySelector('#code-form');
+  const input = form.elements.code;
+  input.focus();
+  input.addEventListener('input', () => { input.value = input.value.replace(/\D/g, '').slice(0, 6); });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button');
+    setBusy(button, true, 'Verifying…');
+    try {
+      await verify(current.challengeId, input.value);
+    } catch (err) {
+      container.querySelector('#code-error').innerHTML = String(alertBox('error', err.message));
+      setBusy(button, false, 'Verify');
+      input.select();
+    }
+  });
+  container.querySelector('#code-resend').addEventListener('click', async (event) => {
+    event.target.disabled = true;
+    try {
+      current = { ...current, ...(await api('/auth/otp/resend', { method: 'POST', body: { challengeId: current.challengeId } })) };
+      container.querySelector('#code-error').innerHTML = String(alertBox('success', 'A new code is on its way.'));
+      const demo = container.querySelector('#demo-code');
+      if (current.devCode) demo.querySelector('strong').textContent = current.devCode;
+    } catch (err) {
+      container.querySelector('#code-error').innerHTML = String(alertBox('error', err.message));
+    } finally {
+      setTimeout(() => { event.target.disabled = false; }, 30000);
+    }
+  });
+  container.querySelector('#code-cancel').addEventListener('click', onCancel);
+}
+
+function forgotPasswordView() {
+  render(html`<div class="login-wrap"><div class="card login-card" id="forgot-card">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>${state.config.brandName}</div>
+    <h1>Reset your password</h1>
+    <p class="muted">Enter your email and we'll send you a code to set a new password.</p>
+    <div id="forgot-error"></div>
+    <form class="form" id="forgot-form">
+      <label>Email<input type="email" name="email" autocomplete="username" required></label>
+      <button class="btn btn-block" type="submit">Send code</button>
+    </form>
+    <p class="muted small"><a href="#/login">Back to sign in</a></p>
+  </div></div>`);
+
+  document.getElementById('forgot-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = event.target.querySelector('button');
+    setBusy(button, true, 'Sending…');
+    try {
+      const challenge = await api('/auth/password/forgot', { method: 'POST', body: formData(event.target) });
+      const card = document.getElementById('forgot-card');
+      showCodeStep(card, challenge, {
+        title: 'Check your email',
+        onCancel: () => forgotPasswordView(),
+        verify: async (challengeId, code) => {
+          // Ask for the new password only once the code has been typed.
+          card.innerHTML = String(html`<h1>Choose a new password</h1>
+            <div id="reset-error"></div>
+            <form class="form" id="reset-form">
+              <label>New password <span class="hint muted">At least 10 characters</span><input type="password" name="newPassword" autocomplete="new-password" minlength="10" required></label>
+              <label>Confirm new password<input type="password" name="confirmPassword" autocomplete="new-password" required></label>
+              <button class="btn btn-block" type="submit">Save password</button>
+            </form>`);
+          document.getElementById('reset-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const values = formData(e.target);
+            const box = document.getElementById('reset-error');
+            if (values.newPassword !== values.confirmPassword) {
+              box.innerHTML = String(alertBox('error', 'The new passwords do not match.'));
+              return;
+            }
+            try {
+              await api('/auth/password/reset', { method: 'POST', body: { challengeId, code, newPassword: values.newPassword } });
+              state.notice = 'Your password has been changed. Please sign in.';
+              navigate('#/login');
+            } catch (err) {
+              box.innerHTML = String(alertBox('error', err.message));
+              if (/code/i.test(err.message)) setTimeout(() => forgotPasswordView(), 2500);
+            }
+          });
+        },
+      });
+    } catch (err) {
+      document.getElementById('forgot-error').innerHTML = String(alertBox('error', err.message));
+      setBusy(button, false, 'Send code');
+    }
+  });
+}
+
+function privacyView() {
+  const c = state.config;
+  render(html`<article class="card prose">
+    <a class="back" href="${state.me ? homeHash() : '#/login'}">← Back</a>
+    <h1>Privacy notice</h1>
+    <p class="muted small">Version ${c.privacyPolicyVersion}. Template text for the proof of concept: have it reviewed for your jurisdiction before launch.</p>
+    <h2>What we collect</h2>
+    <ul>
+      <li><strong>Account details:</strong> your name, email, phone (if given) and a securely hashed password.</li>
+      <li><strong>What you're looking for:</strong> budget, locations and property searches, so our agents can help you.</li>
+      <li><strong>Activity:</strong> sign-ins, pages and properties viewed, searches and messages (subject only), with IP address and browser, for security and service quality.</li>
+      <li><strong>Your deals and messages</strong> are held in our CRM (Zoho CRM), not in this portal.</li>
+    </ul>
+    <h2>How we use it</h2>
+    <p>To give you access to your deals, match you with properties, let our agents contact you about what you asked for, and keep the portal secure. ${c.aiEnabled ? 'AI features send search requests and deal facts (never your contact details) to our AI provider to produce matches and summaries.' : ''}</p>
+    <h2>Who can see it</h2>
+    <p>Only you and our staff. Activity logs are visible to our administrators only, never to other clients.</p>
+    <h2>How long we keep it</h2>
+    <p>Activity logs are deleted after the retention period set by ${c.brandName}. Sign-in codes are deleted within a day.</p>
+    <h2>Your rights</h2>
+    <p>You can ask for a copy of your data, a correction, or for your data to be erased, and you can withdraw consent to be contacted. Email <a href="mailto:${c.privacyContactEmail}">${c.privacyContactEmail}</a>.</p>
+  </article>`);
+}
+
+// Signs the user out after a period without mouse, keyboard, touch or scroll
+// activity (shared across tabs), with a warning two minutes before. The server
+// enforces the same idle limit on its side.
+const idle = {
+  lastActivity: Date.now(),
+  lastServerContact: Date.now(),
+  timer: null,
+  warning: null,
+};
+const IDLE_ACTIVITY_KEY = 'portal.lastActivity';
+
+function markActivity() {
+  const now = Date.now();
+  if (now - idle.lastActivity < 5000) return;
+  idle.lastActivity = now;
+  try { localStorage.setItem(IDLE_ACTIVITY_KEY, String(now)); } catch { /* storage unavailable */ }
+}
+
+function lastActivityAnyTab() {
+  let shared = 0;
+  try { shared = Number(localStorage.getItem(IDLE_ACTIVITY_KEY)) || 0; } catch { /* storage unavailable */ }
+  return Math.max(idle.lastActivity, shared);
+}
+
+function hideIdleWarning() {
+  idle.warning?.remove();
+  idle.warning = null;
+}
+
+function showIdleWarning(secondsLeft) {
+  if (!idle.warning) {
+    idle.warning = document.createElement('div');
+    idle.warning.className = 'idle-backdrop';
+    idle.warning.innerHTML = String(html`<div class="card idle-dialog" role="alertdialog" aria-modal="true" aria-labelledby="idle-title" aria-describedby="idle-text">
+      <h2 id="idle-title">Are you still there?</h2>
+      <p id="idle-text">For your security, you'll be signed out in <strong class="idle-count"></strong> because of inactivity.</p>
+      <div class="actions"><button type="button" class="btn" id="idle-stay">Stay signed in</button>
+        <button type="button" class="btn btn-ghost" id="idle-leave">Sign out</button></div></div>`);
+    document.body.append(idle.warning);
+    idle.warning.querySelector('#idle-stay').addEventListener('click', async () => {
+      idle.lastActivity = 0;
+      markActivity();
+      hideIdleWarning();
+      await api('/auth/session').catch(() => {});
+    });
+    idle.warning.querySelector('#idle-leave').addEventListener('click', () => signOut('user'));
+    idle.warning.querySelector('#idle-stay').focus();
+  }
+  const m = Math.floor(secondsLeft / 60);
+  idle.warning.querySelector('.idle-count').textContent = `${m}:${String(secondsLeft % 60).padStart(2, '0')}`;
+}
+
+function checkIdle() {
+  if (!state.me) return;
+  const limit = (state.config.sessionIdleMinutes || 30) * 60 * 1000;
+  const idleFor = Date.now() - lastActivityAnyTab();
+  if (idleFor >= limit) {
+    signOut('idle');
+  } else if (idleFor >= limit - 120000) {
+    showIdleWarning(Math.ceil((limit - idleFor) / 1000));
+  } else {
+    hideIdleWarning();
+    // Someone reading a page makes no API calls: keep their server session alive too.
+    if (Date.now() - idle.lastServerContact > 4 * 60 * 1000 && idleFor < 60000) api('/auth/session').catch(() => {});
+  }
+}
+
+function startIdleWatch() {
+  for (const type of ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel']) {
+    window.addEventListener(type, markActivity, { passive: true });
+  }
+  idle.timer = setInterval(checkIdle, 1000);
+}
+
+async function signOut(reason) {
+  hideIdleWarning();
+  await api(`/auth/logout?reason=${reason === 'idle' ? 'idle' : 'user'}`, { method: 'POST', body: {} }).catch(() => {});
+  state.me = null;
+  clearSavedSearch();
+  if (reason === 'idle') state.notice = 'You were signed out after a period of inactivity, to keep your account safe.';
+  if (reason === 'expired') state.notice = 'Your session has ended. Please sign in again.';
+  navigate('#/login');
 }
 
 async function changePasswordView() {
@@ -1150,6 +1414,9 @@ async function changePasswordView() {
 const routes = [
   [/^\/login$/, loginView, { public: true }],
   [/^\/signup$/, signupView, { public: true }],
+  [/^\/forgot$/, forgotPasswordView, { public: true }],
+  [/^\/privacy$/, privacyView, { open: true }],
+  [/^\/admin\/security$/, adminSecurityView, { role: 'admin' }],
   [/^\/account\/password$/, changePasswordView, { role: 'any' }],
   [/^\/dashboard$/, dashboardView, { role: 'client' }],
   [/^\/deals\/([^/]+)$/, dealView, { role: 'client' }],
@@ -1210,6 +1477,11 @@ async function handleRoute() {
   const [path, query = ''] = (location.hash.slice(1) || '/').split('?');
   const match = routes.map(([re, view, opts = {}]) => ({ m: path.match(re), view, opts })).find((r) => r.m);
   if (!match) return navigate(homeHash());
+  if (match.opts.open) {
+    // Pages anyone can read, signed in or not (privacy notice).
+    updateChrome(path);
+    return match.view();
+  }
   if (!match.opts.public && !state.me) return navigate('#/login');
   if (match.opts.public && state.me) return navigate(homeHash());
   // A temporary password must be replaced before anything else.
@@ -1228,12 +1500,7 @@ async function handleRoute() {
   }
 }
 
-document.getElementById('logout').addEventListener('click', async () => {
-  await api('/auth/logout', { method: 'POST', body: {} }).catch(() => {});
-  state.me = null;
-  clearSavedSearch();
-  navigate('#/login');
-});
+document.getElementById('logout').addEventListener('click', () => signOut('user'));
 
 (async function init() {
   state.config = await api('/config');
@@ -1242,5 +1509,6 @@ document.getElementById('logout').addEventListener('click', async () => {
   document.getElementById('demo-banner').hidden = state.config.mode !== 'mock';
   await loadMe();
   window.addEventListener('hashchange', handleRoute);
+  startIdleWatch();
   handleRoute();
 })();

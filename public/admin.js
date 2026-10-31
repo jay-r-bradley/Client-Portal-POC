@@ -10,6 +10,9 @@
 const ACTIVITY_LABELS = {
   'auth.signed_up': 'Signed up as guest',
   'auth.login': 'Signed in',
+  'auth.otp_sent': 'Code emailed',
+  'auth.otp_failed': 'Wrong or expired code',
+  'auth.password_reset': 'Reset own password',
   'auth.login_failed': 'Failed sign-in',
   'auth.login_blocked': 'Sign-in blocked',
   'auth.logout': 'Signed out',
@@ -28,6 +31,10 @@ const ACTIVITY_LABELS = {
   'admin.password_reset': 'Reset password',
   'admin.activity_exported': 'Exported activity',
   'admin.integration_tested': 'Tested integration',
+  'admin.user_data_exported': 'Exported user data',
+  'admin.user_erased': 'Erased user data',
+  'admin.audit_log_verified': 'Verified audit log',
+  'system.retention_pruned': 'Old activity deleted (retention)',
 };
 
 const ACTIVITY_CATEGORIES = [
@@ -43,7 +50,7 @@ const ACTIVITY_CATEGORIES = [
 
 // Tone drives the small colored marker beside each activity (always paired with its label).
 function activityTone(action) {
-  if (action === 'auth.login_failed' || action === 'auth.login_blocked' || action === 'admin.user_disabled') return 'warn';
+  if (['auth.login_failed', 'auth.login_blocked', 'auth.otp_failed', 'admin.user_disabled', 'admin.user_erased'].includes(action)) return 'warn';
   if (action.startsWith('admin.')) return 'admin';
   if (action === 'message.sent' || action === 'referral.submitted') return 'message';
   if (action.startsWith('property.')) return 'property';
@@ -77,6 +84,12 @@ function describeActivity(e) {
     case 'auth.signed_up': return ['New Zoho Lead', d.listingType === 'Rent' ? 'rent' : d.listingType ? 'buy' : null,
       d.budgetMax ? `up to ${compactMoney(d.budgetMax)}` : null, d.location].filter(Boolean).join(' · ');
     case 'admin.user_converted': return `${t.name || t.email} (Zoho Contact ${d.contactId})`;
+    case 'auth.login': return d.method === 'password+email_code' ? 'Password + emailed code' : '';
+    case 'auth.otp_sent': return d.purpose === 'login' ? 'Sign-in code' : 'Password reset code';
+    case 'auth.otp_failed': return d.reason || '';
+    case 'admin.user_erased': return `${d.eventsRedacted} activity entries redacted`;
+    case 'admin.audit_log_verified': return d.ok ? `Intact (${d.checked} entries)` : 'Integrity problem found';
+    case 'system.retention_pruned': return `${d.removed} entries older than ${d.retentionDays} days`;
     case 'auth.login_failed': return d.email || '';
     case 'auth.login_blocked': return d.reason || '';
     case 'admin.user_invited': return `${t.name || t.email} as ${d.role}`;
@@ -99,7 +112,9 @@ function relativeTime(iso) {
 }
 
 function actorLabel(e) {
+  if (e.action.startsWith('system.')) return html`<span class="muted">System</span>`;
   if (!e.actor) return html`<span class="muted">Unknown visitor</span>`;
+  if (e.redacted) return html`<span class="muted">Erased user</span>`;
   return html`<a href="#/admin/users/${encodeURIComponent(e.actor.id)}">${e.actor.name || e.actor.email}</a>
     ${e.actor.role === 'admin' ? html`<span class="badge badge-role-admin">Admin</span>` : e.actor.role === 'guest' ? html`<span class="badge badge-guest">Guest</span>` : ''}`;
 }
@@ -472,7 +487,7 @@ async function adminUsersView(params) {
 }
 
 async function adminUserView(id) {
-  const { user, contact, deals, activity } = await api(`/admin/users/${encodeURIComponent(id)}`);
+  const { user, contact, deals, activity, consents } = await api(`/admin/users/${encodeURIComponent(id)}`);
 
   render(html`
     <a class="back" href="#/admin/users">← All users</a>
@@ -498,6 +513,16 @@ async function adminUserView(id) {
             <div><dt>Phone (Zoho)</dt><dd>${contact?.phone || '—'}</dd></div>` : ''}
         </dl>
         ${user.role === 'client' && !contact ? alertBox('error', 'The linked Zoho Contact was not found, so this client cannot sign in.') : ''}
+        <h3>Consents</h3>
+        ${consents.length ? html`<ul class="plain-list">${consents.map((c) => html`<li><span>${c.kind === 'privacy_policy' ? 'Privacy notice' : 'Contact about properties'}
+          <span class="muted small">(policy ${c.policyVersion})</span></span><span class="muted small">${formatDate(c.grantedAt, true)}</span></li>`)}</ul>`
+          : html`<p class="muted small">No consent records (invited by an admin).</p>`}
+        <h3>Data protection</h3>
+        <div class="actions">
+          <a class="btn btn-secondary btn-sm" href="/api/admin/users/${encodeURIComponent(user.id)}/export" download>Export their data</a>
+          ${user.id === state.me.user.id ? '' : html`<button type="button" class="btn btn-ghost btn-sm btn-danger" id="erase-user">Erase personal data</button>`}
+        </div>
+        <p class="muted small">Export covers what the portal holds; deals, leads and messages are exported from Zoho CRM.</p>
       </section>
       ${user.role === 'client' ? html`<section class="card">
         <h2>Deals in Zoho</h2>
@@ -512,6 +537,17 @@ async function adminUserView(id) {
     </section>`);
 
   wireCopyButtons(document.getElementById('invite-result'));
+  document.getElementById('erase-user')?.addEventListener('click', async () => {
+    const typed = window.prompt(`This permanently removes ${user.name || user.email}'s personal details from the portal and its activity log, and signs them out. Their Zoho CRM records are not changed.\n\nType their email address to confirm:`);
+    if (typed === null) return;
+    try {
+      const result = await api(`/admin/users/${encodeURIComponent(user.id)}/erase`, { method: 'POST', body: { confirm: typed.trim() } });
+      window.alert(`Erased. ${result.eventsRedacted} activity entries were redacted.`);
+      navigate('#/admin/users');
+    } catch (err) {
+      window.alert(err.message);
+    }
+  });
   wireUserActions(app.querySelector('.page-head'), async (result) => {
     await adminUserView(id);
     if (result.temporaryPassword) document.getElementById('invite-result').innerHTML = String(temporaryPasswordNotice(result.user, result.temporaryPassword));
@@ -537,6 +573,69 @@ async function adminReferralsView() {
         </tr>`) : html`<tr><td colspan="7" class="empty-cell">No referrals yet.</td></tr>`}</tbody>
       </table></div>
     </section>`);
+}
+
+async function adminSecurityView() {
+  const s = await api('/admin/security');
+  const row = (label, value, ok = true) => html`<div class="setting-row"><dt>${label}</dt><dd>${ok ? '' : html`<span class="badge badge-warning">Check</span> `}${value}</dd></div>`;
+  render(html`
+    ${adminHead('Security & privacy', 'How the portal protects accounts and personal data, and checks you can run.')}
+    <div class="admin-grid admin-grid-even">
+      <section class="card">
+        <h2>Sign-in</h2>
+        <dl class="settings">
+          ${row('Two-step sign-in', s.emailOtp ? 'Password + 6-digit code emailed at every sign-in' : 'Off: password only', s.emailOtp)}
+          ${row('Email delivery', s.mailProvider === 'console' ? 'Console (development only): codes are printed to the server log' : s.mailProvider, s.mailProvider !== 'console')}
+          ${row('Codes', `Expire after ${s.otpTtlMinutes} minutes, ${s.otpMaxAttempts} attempts, stored only as hashes`)}
+          ${row('Idle sign-out', `After ${s.sessionIdleMinutes} minutes without activity (browser and server)`)}
+          ${row('Maximum session', `${s.sessionMaxHours} hours, then sign in again`)}
+          ${row('Passwords', 'At least 10 characters, hashed with scrypt; failed sign-ins throttled')}
+        </dl>
+      </section>
+      <section class="card">
+        <h2>Requests</h2>
+        <dl class="settings">
+          ${row('Request timeout', `${s.requestTimeoutSeconds} seconds (AI requests: 2 minutes)`)}
+          ${row('Request size limit', `${s.maxBodyKb} KB`)}
+          ${row('Input checks', 'IDs, dates and filters are validated; CRM queries escape all input')}
+          ${row('Cross-site requests', 'Blocked (same-origin JSON only)')}
+          ${row('Transport', s.production ? 'HTTPS enforced (HSTS)' : 'Development mode: run behind HTTPS in production', s.production)}
+          ${row('Database', s.database === 'sqlite' ? 'SQLite (development); use PostgreSQL in production' : s.database, s.database !== 'sqlite')}
+        </dl>
+      </section>
+    </div>
+    <div class="admin-grid admin-grid-even section">
+      <section class="card">
+        <h2>Audit log integrity</h2>
+        <p class="muted small">Every entry is chained to the one before it with a cryptographic hash, so any edit or deletion is detectable.
+          ${s.auditEvents.toLocaleString()} entries recorded. Only admins can read the log; nobody can edit it through the portal.</p>
+        <div id="verify-result"></div>
+        <button type="button" class="btn btn-secondary" id="verify-log">Verify audit log now</button>
+      </section>
+      <section class="card">
+        <h2>Personal data</h2>
+        <dl class="settings">
+          ${row('Activity retention', `${s.activityRetentionDays} days, then deleted automatically`)}
+          ${row('Privacy notice', html`Version ${s.privacyPolicyVersion} · <a href="#/privacy">view</a>`)}
+          ${row('Privacy contact', s.privacyContactEmail, !s.privacyContactEmail.endsWith('@example.com'))}
+          ${row('Consent', 'Recorded with time and policy version at sign-up')}
+          ${row('Access & erasure', 'Export or erase a person from their page under Users')}
+        </dl>
+      </section>
+    </div>`);
+  document.getElementById('verify-log').addEventListener('click', async (event) => {
+    setBusy(event.target, true, 'Verifying…');
+    try {
+      const r = await api('/admin/security/verify-audit-log', { method: 'POST', body: {} });
+      document.getElementById('verify-result').innerHTML = String(r.ok
+        ? alertBox('success', `Intact: all ${r.checked.toLocaleString()} entries verified.`)
+        : alertBox('error', `Integrity problem at entry ${r.brokenAt}: ${r.reason}`));
+    } catch (err) {
+      document.getElementById('verify-result').innerHTML = String(alertBox('error', err.message));
+    } finally {
+      setBusy(event.target, false, 'Verify audit log now');
+    }
+  });
 }
 
 const FIELD_STATUS = {
