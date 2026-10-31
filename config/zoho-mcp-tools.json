@@ -1,0 +1,15 @@
+{
+  "_comment": "Maps the portal's read operations to tools on your Zoho MCP server. Tool names and argument shapes depend on the server you create in Zoho CRM (Setup > Developer Hub > MCP for AI Agents). The values below are placeholders: run `npm run mcp:check` to list your server's real tools and their input schemas, then edit this file. {query}, {id} and {module} are filled in by the portal. Only coql is required; remove getUser or getFields if your server does not offer them.",
+  "coql": {
+    "tool": "ExecuteCOQLQuery",
+    "args": { "body": { "select_query": "{query}" } }
+  },
+  "getUser": {
+    "tool": "GetUser",
+    "args": { "path_variables": { "user": "{id}" } }
+  },
+  "getFields": {
+    "tool": "GetFields",
+    "args": { "query_params": { "module": "{module}" } }
+  }
+}

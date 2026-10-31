@@ -44,13 +44,25 @@ const config = {
   ai: {
     enabled: Boolean(env.OPENAI_API_KEY),
     apiKey: env.OPENAI_API_KEY,
-    // Pick a current model from https://platform.openai.com/docs/models that
-    // supports Structured Outputs (json_schema).
+    // Defaults to OpenAI's "mini" tier: cheap and fast enough for these tasks.
+    // Any current model with tool calling and Structured Outputs works.
     model: env.OPENAI_MODEL || 'gpt-5-mini',
+    // Upper bound on tool-call rounds per AI request (each round is one model call).
+    maxSteps: Number(env.AI_MAX_STEPS || 6),
     baseUrl: env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
     timeoutMs: Number(env.OPENAI_TIMEOUT_MS || 45000),
     maxRequestsPerHour: Number(env.AI_MAX_REQUESTS_PER_HOUR || 30),
     cacheMinutes: Number(env.AI_CACHE_MINUTES || 60),
+  },
+
+  // The AI reads the CRM through a Zoho MCP server when ZOHO_MCP_URL is set
+  // (the URL Zoho generates already embeds the server key). Without it, the AI
+  // uses the same CRM connection as the pages (REST, or mock data).
+  zohoMcp: {
+    url: env.ZOHO_MCP_URL,
+    // Optional extra header, for MCP servers that take a bearer token instead of a URL key.
+    authorization: env.ZOHO_MCP_AUTHORIZATION,
+    toolMapPath: env.ZOHO_MCP_TOOL_MAP || path.join(__dirname, '..', 'config', 'zoho-mcp-tools.json'),
   },
 
   // Zoho orgs customise module and field API names, so every name the portal

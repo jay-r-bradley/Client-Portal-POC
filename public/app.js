@@ -496,6 +496,7 @@ async function runSearch(criteria) {
 // Puts the criteria the AI understood into the form, so the client can see
 // exactly what was searched and fine-tune it by hand.
 function fillSearchForm(criteria) {
+  if (!criteria) return;
   const form = document.getElementById('search-form');
   const values = {
     budgetMin: criteria.budgetMin, budgetMax: criteria.budgetMax,

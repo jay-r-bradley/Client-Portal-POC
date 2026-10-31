@@ -1,39 +1,22 @@
-// AI features layered on top of the CRM. The model only ever sees the signed-in
-// client's own data, never contact details, and every answer is schema-checked.
+// AI features. The model works as a small agent: it calls client-scoped portal
+// tools (see portalTools.js), which read the CRM through Zoho MCP when it is
+// configured. Answers are schema-checked, and anything the model says about a
+// listing or deal is matched back to records the tools actually returned.
 
 const crypto = require('node:crypto');
-const { normalizeCriteria } = require('../propertyCriteria');
-const { criteriaPrompt, rankingPrompt, dealInsightPrompt, portfolioInsightPrompt } = require('./prompts');
-
-const MAX_RANKED = 20;
-const DAY_MS = 24 * 3600 * 1000;
+const { runAgent } = require('./agent');
+const { createPortalTools, dealFacts } = require('./portalTools');
+const { propertySearchPrompt, dealInsightPrompt, portfolioInsightPrompt } = require('./prompts');
 
 class AiLimitError extends Error {}
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function daysBetween(from, to) {
-  if (!from || !to) return null;
-  const diff = new Date(to) - new Date(from);
-  return Number.isFinite(diff) ? Math.round(diff / DAY_MS) : null;
-}
 
 function hash(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 }
 
-// Only the listing facts the model needs to compare properties.
-function listingForModel(p) {
-  return {
-    id: p.id, name: p.name, city: p.city, address: p.address, price: p.price, listingType: p.listingType,
-    propertyType: p.propertyType, bedrooms: p.bedrooms, bathrooms: p.bathrooms, floorArea: p.floorArea,
-    description: p.description,
-  };
-}
-
 class AiService {
+  // `crm` is the CRM service the AI reads through: Zoho MCP-backed in live
+  // setups, otherwise the same service the pages use.
   constructor({ client, crm, config, now = () => Date.now() }) {
     this.client = client;
     this.crm = crm;
@@ -41,6 +24,10 @@ class AiService {
     this.now = now;
     this.cache = new Map();
     this.usage = new Map();
+  }
+
+  today() {
+    return new Date(this.now()).toISOString().slice(0, 10);
   }
 
   // ---- Guards -------------------------------------------------------------
@@ -65,112 +52,80 @@ class AiService {
     return value;
   }
 
+  portalTools(contactId) {
+    return createPortalTools({ crm: this.crm, contactId, config: this.config, now: this.now });
+  }
+
+  agent(prompt, { user, tools }) {
+    return runAgent({ client: this.client, ...prompt, user, tools, maxSteps: this.config.ai.maxSteps });
+  }
+
   // ---- Natural-language property search -----------------------------------
 
   async propertySearch(contactId, query) {
     this.consume(contactId);
-    const { currency } = this.config;
-    const options = await this.crm.getPropertyFilterOptions();
-
-    const extracted = await this.client.completeJson({
-      ...criteriaPrompt({ ...options, currency, today: today() }),
+    const portal = await this.portalTools(contactId);
+    const { result } = await this.agent(propertySearchPrompt({ currency: this.config.currency, today: this.today() }), {
       user: { clientRequest: query },
-    });
-    const criteria = normalizeCriteria({
-      ...extracted,
-      locations: (extracted.locations || []).slice(0, 5),
-      keywords: null, // preferences are ranked by the model, not used as a hard text filter
-    });
-
-    let relaxed = false;
-    let properties = await this.crm.searchProperties(criteria);
-    if (!properties.length) {
-      relaxed = true;
-      properties = await this.crm.searchProperties(relax(criteria));
-      if (!properties.length) properties = await this.crm.searchProperties({ ...relax(criteria), locations: [] });
-    }
-
-    const result = { criteria, preferences: extracted.preferences || [], interpretation: extracted.summary, relaxed };
-    if (!properties.length) return { ...result, overview: null, results: [] };
-
-    const candidates = properties.slice(0, MAX_RANKED);
-    const ranking = await this.client.completeJson({
-      ...rankingPrompt({ candidateIds: candidates.map((p) => p.id), relaxed, currency }),
-      user: {
-        clientRequest: query,
-        preferences: extracted.preferences,
-        filtersApplied: criteria,
-        candidates: candidates.map(listingForModel),
-      },
+      tools: portal.pick('search_listings', 'get_listing', 'list_my_deals'),
     });
 
     // Trust the model for order and wording only; property data comes from the CRM.
-    const byId = new Map(properties.map((p) => [p.id, p]));
+    const { listings, searches } = portal.state;
     const seen = new Set();
-    const ranked = [];
-    for (const r of [...(ranking.results || [])].sort((a, b) => b.score - a.score)) {
-      if (!byId.has(r.id) || seen.has(r.id)) continue;
+    const results = [];
+    for (const r of [...(result.results || [])].sort((a, b) => b.score - a.score)) {
+      const property = listings.get(r.id);
+      if (!property || seen.has(r.id) || property.status !== this.config.crm.availableStatus) continue;
       seen.add(r.id);
-      ranked.push({ property: byId.get(r.id), score: Math.max(0, Math.min(100, r.score)), reason: r.reason });
+      results.push({ property, score: Math.max(0, Math.min(100, r.score)), reason: r.reason });
     }
-    for (const p of properties) if (!seen.has(p.id)) ranked.push({ property: p, score: null, reason: null });
+    // Keep matches from the final search that the model did not rank.
+    const finalSearch = searches[searches.length - 1];
+    for (const p of finalSearch?.results || []) if (!seen.has(p.id)) results.push({ property: p, score: null, reason: null });
 
-    return { ...result, overview: ranking.overview, results: ranked };
+    const firstSearchEmpty = searches.length > 0 && searches[0].results.length === 0;
+    return {
+      criteria: finalSearch?.criteria || null,
+      preferences: result.preferences || [],
+      interpretation: result.interpretation,
+      relaxed: Boolean(results.length && (result.relaxed || firstSearchEmpty)),
+      overview: result.overview,
+      results,
+    };
   }
 
   // ---- Deal insights ------------------------------------------------------
 
-  dealFacts(deal, stages, property) {
-    const { wonStages, lostStages } = this.config.crm;
-    const openStages = stages.filter((s) => !wonStages.includes(s) && !lostStages.includes(s));
-    const status = wonStages.includes(deal.stage) ? 'closed-won' : lostStages.includes(deal.stage) ? 'closed-lost' : 'open';
-    return {
-      id: deal.id,
-      name: deal.name,
-      type: deal.type,
-      stage: deal.stage,
-      status,
-      stagePosition: status === 'open' ? `${openStages.indexOf(deal.stage) + 1} of ${openStages.length}` : null,
-      pipeline: openStages,
-      amount: deal.amount,
-      targetClosingDate: deal.closingDate,
-      daysUntilClosing: daysBetween(today(), deal.closingDate),
-      lastUpdated: deal.modifiedAt,
-      daysSinceLastUpdate: daysBetween(deal.modifiedAt, new Date(this.now()).toISOString()),
-      latestUpdateFromAgent: deal.description,
-      property: property ? listingForModel(property) : deal.property?.name || null,
-    };
-  }
-
   async dealInsights(contactId, dealId) {
-    const deal = await this.crm.getDeal(contactId, dealId);
+    const portal = await this.portalTools(contactId);
+    const deal = (await portal.myDeals()).find((d) => d.id === String(dealId));
     if (!deal) return null;
-    const [stages, property] = await Promise.all([
-      this.crm.getStages(),
-      deal.property ? this.crm.getProperty(deal.property.id) : null,
-    ]);
-    const facts = this.dealFacts(deal, stages, property);
-    // Re-generated only when the deal (or the day) changes.
-    return this.cached(`deal:${contactId}:${hash({ facts, day: today() })}`, () => {
+    const facts = dealFacts(deal, await portal.stages(), this.config, this.now());
+    // Regenerated only when the deal (or the day) changes.
+    return this.cached(`deal:${contactId}:${hash({ facts, day: this.today() })}`, async () => {
       this.consume(contactId);
-      return this.client.completeJson({
-        ...dealInsightPrompt({ today: today(), currency: this.config.currency }),
+      const { result } = await this.agent(dealInsightPrompt({ today: this.today(), currency: this.config.currency }), {
         user: { deal: facts },
+        tools: portal.pick('get_listing', 'list_my_deals'),
       });
+      return result;
     });
   }
 
   async portfolioInsights(contactId) {
-    const [deals, stages] = await Promise.all([this.crm.listDeals(contactId), this.crm.getStages()]);
+    const portal = await this.portalTools(contactId);
+    const [deals, stages] = await Promise.all([portal.myDeals(), portal.stages()]);
     if (!deals.length) return { overview: null, priorities: [] };
-    const facts = deals.map((d) => this.dealFacts(d, stages, null));
-    const insight = await this.cached(`portfolio:${contactId}:${hash({ facts, day: today() })}`, () => {
+    const facts = deals.map((d) => dealFacts(d, stages, this.config, this.now()));
+
+    const insight = await this.cached(`portfolio:${contactId}:${hash({ facts, day: this.today() })}`, async () => {
       this.consume(contactId);
-      return this.client.completeJson({
-        ...portfolioInsightPrompt({ today: today(), currency: this.config.currency, dealIds: deals.map((d) => d.id) }),
-        user: { deals: facts },
-      });
+      const prompt = portfolioInsightPrompt({ today: this.today(), currency: this.config.currency, dealIds: deals.map((d) => d.id) });
+      const { result } = await this.agent(prompt, { user: { deals: facts }, tools: portal.pick('get_deal') });
+      return result;
     });
+
     const names = new Map(deals.map((d) => [d.id, d.name]));
     return {
       overview: insight.overview,
@@ -181,17 +136,4 @@ class AiService {
   }
 }
 
-// Near-match search: allow ~15% over budget, one fewer bedroom, and drop the
-// secondary size filters.
-function relax(c) {
-  return {
-    ...c,
-    budgetMin: null,
-    budgetMax: c.budgetMax !== null ? Math.round(c.budgetMax * 1.15) : null,
-    minBedrooms: c.minBedrooms ? Math.max(0, c.minBedrooms - 1) : null,
-    minBathrooms: null,
-    minFloorArea: null,
-  };
-}
-
-module.exports = { AiService, AiLimitError, relax };
+module.exports = { AiService, AiLimitError };

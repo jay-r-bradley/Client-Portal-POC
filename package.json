@@ -12,10 +12,12 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "create-user": "node scripts/create-user.js",
+    "mcp:check": "node scripts/zoho-mcp-check.js",
     "test": "node --test test/*.test.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
     "express": "^5.1.0"
   }
 }

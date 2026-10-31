@@ -6,7 +6,7 @@ A white-label client portal for real estate brokerages that already manage their
 - **Search properties.** Fill in a form with budget range, a preferred location plus other locations, buy or rent, property type, minimum bedrooms, bathrooms and floor area, and free-text requirements. The portal returns the **available** listings from the CRM that match.
 - **Contact their agent.** Message the agent from inside the portal (in general, about a specific deal, or "I'm interested" on a listing). Each message lands in Zoho as a Note on the client's Contact and a high-priority Task for the agent. The agent's replies show up in the portal thread.
 
-- **AI assistant (OpenAI, optional).** See [AI features](#ai-features-openai) below.
+- **AI assistant (optional).** Plain-English property search and deal insights, powered by OpenAI and reading Zoho CRM through Zoho MCP. See [AI features](#ai-features-openai--zoho-mcp) below.
 
 Zoho CRM stays the single source of truth. The portal stores nothing about deals or properties. It only keeps login accounts, and each one points at a Zoho Contact.
 
@@ -76,23 +76,58 @@ The script looks up the Contact by email in Zoho and links the login to it. If t
 - **To reply in the portal**, the agent adds a Note on the Contact titled `[Portal Reply] <subject>`. Only notes with these two prefixes are ever shown to clients. Internal notes stay private.
 - Updating a Deal's Stage, Amount, Closing Date or Description is reflected in the portal immediately.
 
-## AI features (OpenAI)
+## AI features (OpenAI + Zoho MCP)
 
-Set `OPENAI_API_KEY` (and `OPENAI_MODEL`) in `.env` to switch these on. Without a key the portal works exactly as before and the AI panels are hidden.
+Set `OPENAI_API_KEY` in `.env` to switch these on. Without a key the portal works exactly as before and the AI panels are hidden.
 
 | Feature | Where | What it does |
 |---|---|---|
-| **AI property search** | Find a Property | The client describes what they want in plain English ("3-bed in Austin or Dallas under 650k, ideally with a pool"). The model turns it into search filters, which are filled into the form so the client can see and adjust them. The CRM search runs on those filters, then the model ranks the matches against the client's softer wishes and gives each a match score and a short reason. If nothing matches, it loosens the search (about 15% over budget, one fewer bedroom, then any location) and explains what each near match is missing. |
+| **AI property search** | Find a Property | The client describes what they want in plain English ("3-bed in Austin or Dallas under 650k, ideally with a pool"). The AI runs listing searches itself, loosening them step by step if nothing fits, then ranks the results with a match score and a short reason. The filters it applied are filled into the form so the client can see and adjust them. Near matches say what they miss ("about 8% over budget"). |
 | **Deals at a glance** | My Deals | An overview across the client's deals, plus which open deals need their attention first and why. |
 | **What this means for you** | Each deal | A plain-language explanation of the current stage, the usual next steps, things to watch (for example, a closing date coming up or no update in weeks), and questions the client could ask their agent. |
 
-How it is kept safe and affordable:
+### How it works
 
-- **Your data stays the source of truth.** The model only interprets and explains. Prices, addresses and stages shown on screen always come from the CRM. A ranked listing ID the model invents is discarded. A listing the model leaves out is still shown, just without a reason.
-- **Structured output only.** Every call uses OpenAI Structured Outputs with a strict JSON schema. Listing and deal IDs are restricted to the client's own records.
-- **Minimal data sent.** The model receives deal and listing facts only, never the client's email, phone or the agent's contact details. CRM text is passed as data, and the prompts tell the model not to follow instructions inside it.
+```
+Client ─▶ Portal server ─▶ OpenAI (mini model)
+              ▲                │ tool calls
+              │                ▼
+              │      Portal tools, locked to the signed-in client
+              │      list_my_deals · get_deal · search_listings · get_listing
+              │                │
+              │                ▼
+              └──── Zoho CRM via Zoho MCP (read-only COQL)
+```
+
+1. **The AI is an agent.** It decides which lookups it needs and calls the portal's tools (`src/ai/portalTools.js`), up to `AI_MAX_STEPS` rounds.
+2. **The tools are locked to the client in code.** Each request gets a fresh set of tools bound to the signed-in client's Contact ID. The model never receives a raw Zoho tool, so no prompt can make it read another client's deals.
+3. **The tools read Zoho through MCP.** With `ZOHO_MCP_URL` set (and `ZOHO_MODE=live`), every AI lookup is a COQL query sent to your Zoho MCP server. The MCP server key stays on the portal server and is never sent to OpenAI. Without `ZOHO_MCP_URL`, the AI uses the same CRM connection as the pages (REST, or sample data in mock mode).
+4. **The pages still use Zoho's REST API.** Deal lists, status, search and messages keep using REST, which is fast and predictable.
+
+### Connecting Zoho MCP
+
+1. In Zoho CRM go to **Setup > Developer Hub > MCP for AI Agents**. Create or open a server with **read-only** CRM tools (data insights / COQL), and copy its URL. The URL contains the server's key, so treat it like a password.
+2. Add it to `.env`:
+   ```
+   ZOHO_MODE=live
+   ZOHO_MCP_URL=https://...zohomcp.../mcp/...
+   ```
+3. Run `npm run mcp:check -- --schemas`. It lists your server's tools and their arguments, checks them against `config/zoho-mcp-tools.json`, and runs one test COQL query.
+4. **Edit `config/zoho-mcp-tools.json` to match.** The tool names and argument shapes shipped there are placeholders, because Zoho doesn't publish them; they depend on your server. Only the COQL tool is required. `getUser` (agent details) and `getFields` (stage order, filter choices) are optional, and without them the configured defaults are used.
+
+### Choosing the model
+
+`OPENAI_MODEL` defaults to `gpt-5-mini`, OpenAI's low-cost "mini" tier. Change it at any time; any current OpenAI model with tool calling and Structured Outputs works. `OPENAI_BASE_URL` points the portal at any OpenAI-compatible endpoint (for example, a gateway).
+
+Zoho's own model, Zia LLM, is currently only available inside Zoho's apps, with no public API that an outside portal can call. If Zoho opens one up, it can be added as another provider behind the same interface (`chat()` in `src/ai/openaiClient.js`).
+
+### Safety and cost
+
+- **Your data stays the source of truth.** The model only interprets and explains. Prices, addresses and stages shown on screen come from the CRM records the tools returned. A listing ID the model invents is discarded. A listing from the final search that the model left out is still shown, just without a reason.
+- **Structured output only.** Every final answer uses a strict JSON schema, and dashboard priorities can only name the client's own deal IDs.
+- **Minimal data sent.** The tools return deal and listing facts only, never the client's email, phone or the agent's contact details. CRM text is passed as data, and the prompts tell the model not to follow instructions inside it. Tool errors reach the model as a generic message; details stay in the server log.
 - **Client-facing guardrails.** The model is told not to invent facts or give legal or financial advice, and every AI panel carries a "confirm with your agent" note.
-- **Cost control.** Each client is limited to `AI_MAX_REQUESTS_PER_HOUR` (default 30). Deal insights are cached until the deal changes or the day rolls over. A slow or failed AI call never blocks the page; the panel shows a short error and the regular features keep working.
+- **Cost control.** Each client is limited to `AI_MAX_REQUESTS_PER_HOUR` (default 30) and each request to `AI_MAX_STEPS` model rounds (default 6). Deal insights are cached until the deal changes or the day rolls over. A slow or failed AI call never blocks the page.
 
 All prompts and schemas live in `src/ai/prompts.js`, so they can be tuned in one place.
 
@@ -113,12 +148,20 @@ src/
     mappers.js       Zoho record -> portal shape; COQL query builder
     mockCrm.js       Same interface, in-memory sample data
   ai/
-    openaiClient.js  OpenAI Chat Completions client (Structured Outputs)
+    index.js         Wires the AI: model client + which CRM path it reads through
+    openaiClient.js  OpenAI Chat Completions client (tool calls, Structured Outputs)
+    agent.js         Tool-calling loop with a step limit
+    portalTools.js   The AI's only tools, locked to the signed-in client
     prompts.js       System prompts + JSON schemas for every AI feature
     aiService.js     AI search, deal insights, caching and per-client limits
+  mcp/
+    mcpConnection.js MCP client (Streamable HTTP, official SDK)
+    zohoMcpApi.js    Read-only Zoho CRM access as COQL over Zoho MCP
   routes/ai.js       /api/ai/* endpoints (hidden when no OpenAI key is set)
   store/userStore.js Portal logins (email -> password hash -> Zoho Contact id)
+config/zoho-mcp-tools.json  Maps portal reads to your Zoho MCP server's tools
 scripts/create-user.js
+scripts/zoho-mcp-check.js   npm run mcp:check
 test/
 ```
 
