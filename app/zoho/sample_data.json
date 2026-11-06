@@ -61,7 +61,7 @@
    "floorArea": 1850,
    "description": "Bright end-unit townhouse with lake views, rooftop terrace and two-car garage.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p1.jpg",
    "featured": false,
    "listedDate": "2026-08-14"
   },
@@ -78,7 +78,7 @@
    "floorArea": 920,
    "description": "Industrial-style loft with floor-to-ceiling windows, walking distance to everything.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p2.jpg",
    "featured": false,
    "listedDate": "2026-07-02"
   },
@@ -95,7 +95,7 @@
    "floorArea": 2900,
    "description": "Spacious family home on a half-acre lot with pool and mature oak trees.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p3.jpg",
    "featured": true,
    "listedDate": "2026-09-03"
   },
@@ -112,7 +112,7 @@
    "floorArea": 1100,
    "description": "Renovated bungalow with a big backyard, pet friendly.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p4.jpg",
    "featured": false,
    "listedDate": "2026-02-10"
   },
@@ -129,7 +129,7 @@
    "floorArea": 1400,
    "description": "High-floor condo with skyline views, concierge, pool and gym.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p5.jpg",
    "featured": false,
    "listedDate": "2026-06-21"
   },
@@ -146,7 +146,7 @@
    "floorArea": 3200,
    "description": "Classic craftsman near White Rock Lake, fully updated kitchen.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p6.jpg",
    "featured": true,
    "listedDate": "2026-09-18"
   },
@@ -163,7 +163,7 @@
    "floorArea": 550,
    "description": "Cozy studio above shops and cafes in the Bishop Arts District.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p7.jpg",
    "featured": false,
    "listedDate": "2026-08-30"
   },
@@ -180,7 +180,7 @@
    "floorArea": 1650,
    "description": "Move-in ready home in a top-rated school district.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p8.jpg",
    "featured": false,
    "listedDate": "2026-07-25"
   },
@@ -197,7 +197,7 @@
    "floorArea": 2400,
    "description": "Restored Victorian with wraparound porch on the Heights boulevard.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p9.jpg",
    "featured": false,
    "listedDate": "2026-05-12"
   },
@@ -214,7 +214,7 @@
    "floorArea": 1050,
    "description": "Garden-level apartment with private patio, close to light rail.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p10.jpg",
    "featured": false,
    "listedDate": "2026-09-27"
   },
@@ -231,7 +231,7 @@
    "floorArea": 3100,
    "description": "Penthouse with private elevator, chef kitchen and panoramic views.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p11.jpg",
    "featured": true,
    "listedDate": "2026-10-05"
   },
@@ -248,7 +248,7 @@
    "floorArea": 2600,
    "description": "Income-producing duplex near the Pearl, both units leased.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p12.jpg",
    "featured": false,
    "listedDate": "2026-04-08"
   },
@@ -265,7 +265,7 @@
    "floorArea": 1450,
    "description": "Charming cottage with updated systems on a tree-lined street.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p13.jpg",
    "featured": false,
    "listedDate": "2026-08-02"
   },
@@ -282,7 +282,7 @@
    "floorArea": 2200,
    "description": "Second-floor office suite with reception, four offices and conference room.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p14.jpg",
    "featured": false,
    "listedDate": "2026-06-01"
   },
@@ -299,7 +299,7 @@
    "floorArea": 1720,
    "description": "Walk to Zilker Park and Barton Springs; private courtyard.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p15.jpg",
    "featured": false,
    "listedDate": "2026-09-22"
   },
@@ -316,7 +316,7 @@
    "floorArea": 2300,
    "description": "Ranch-style home on a large lot.",
    "status": "Sold",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p16.jpg",
    "featured": false,
    "listedDate": "2026-03-15"
   },
@@ -333,7 +333,7 @@
    "floorArea": 4200,
    "description": "Gated estate on 1.2 acres with a pool, guest casita and Hill Country views.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p17.jpg",
    "featured": true,
    "listedDate": "2026-10-27"
   },
@@ -350,7 +350,7 @@
    "floorArea": 1780,
    "description": "New-build rowhome facing Lake Park, with a rooftop deck and a ground-floor flex room that works as a home office.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p18.jpg",
    "featured": true,
    "listedDate": "2026-10-22"
   },
@@ -367,7 +367,7 @@
    "floorArea": 1250,
    "description": "Corner loft with exposed brick, two balconies and rooftop pool access.",
    "status": "Available",
-   "photoUrl": null,
+   "photoUrl": "/images/properties/p19.jpg",
    "featured": true,
    "listedDate": "2026-10-18"
   }

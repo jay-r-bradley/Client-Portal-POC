@@ -90,9 +90,12 @@ function initials(name) {
   return String(name || '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 }
 
+// CRM photo links must be https; the portal's own images (e.g. sample photos) are allowed too.
 function safeImageUrl(url) {
+  if (!url) return null;
   try {
-    return new URL(url).protocol === 'https:' ? url : null;
+    const parsed = new URL(url, location.origin);
+    return parsed.protocol === 'https:' || parsed.origin === location.origin ? parsed.href : null;
   } catch {
     return null;
   }

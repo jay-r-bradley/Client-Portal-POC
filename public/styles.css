@@ -158,7 +158,7 @@ textarea { min-height: 120px; resize: vertical; }
 .property-specs { display: flex; gap: 12px; color: var(--muted); font-size: 0.85rem; flex-wrap: wrap; }
 .property-actions { padding: 0 16px 16px; }
 .property-photo { max-height: 260px; }
-.property-hero { aspect-ratio: 21 / 9; max-height: 380px; border-radius: var(--radius); margin-bottom: 20px; }
+.property-hero { aspect-ratio: auto; height: clamp(220px, 32vw, 380px); border-radius: var(--radius); margin-bottom: 20px; }
 
 .empty { text-align: center; padding: 40px 20px; color: var(--muted); }
 
